@@ -13,7 +13,7 @@ set /p VERSION=<build\version.txt
 echo Version %VERSION%
 
 echo === 1/2 Building CADscout (Full) and CADscoutLite ===
-cmake --build build --config Release --target CADscout CADscoutLite
+cmake --build build --config Release --target CADscout CADscoutLite CADscoutLiteMenu
 if errorlevel 1 (
     echo BUILD FAILED. If CADscoutLite.exe is open, close it and run this again.
     exit /b 1

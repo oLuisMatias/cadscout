@@ -8,10 +8,12 @@
 -->
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-         xmlns:uap2="http://schemas.microsoft.com/appx/manifest/uap/windows10/2"
+         xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+         xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
+         xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
          xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-         IgnorableNamespaces="uap uap2 uap3 rescap">
+         IgnorableNamespaces="uap uap3 desktop4 desktop5 com rescap">
 
   <Identity Name="CADscout.Lite" Publisher="CN=CADscout" Version="@VERSION@" ProcessorArchitecture="x64" />
 
@@ -41,9 +43,8 @@
                           Square44x44Logo="Assets\Square44x44Logo.png" />
 
       <Extensions>
-        <!-- Model files: CADscout Lite appears in "Open with", and the right-click menu of these files gets the entry
-             "View with CADscout" (a fixed entry: it exists while the app is installed). The program receives the file
-             path as its first argument. -->
+        <!-- Model files: CADscout Lite appears in "Open with" and can be chosen as the default program. The program
+             receives the file path as its first argument. -->
         <uap3:Extension Category="windows.fileTypeAssociation">
           <uap3:FileTypeAssociation Name="cadscoutmodels">
             <uap:DisplayName>3D model</uap:DisplayName>
@@ -63,11 +64,24 @@
               <uap:FileType>.3mf</uap:FileType>
               <uap:FileType>.dxf</uap:FileType>
             </uap:SupportedFileTypes>
-            <uap2:SupportedVerbs>
-              <uap3:Verb Id="viewwithcadscout" Parameters="&quot;%1&quot;">View with CADscout</uap3:Verb>
-            </uap2:SupportedVerbs>
           </uap3:FileTypeAssociation>
         </uap3:Extension>
+
+        <!-- Right-click entry "View with CADscout" with the program icon, for every model file whatever its default
+             program is (declared for all files, the DLL hides it for other types; a fixed entry: it exists while the app is installed). It is implemented by CADscoutLiteMenu.dll
+             (src/contextmenu); the Clsid must match CLSID_ViewWithCadscout there. -->
+        <desktop4:Extension Category="windows.fileExplorerContextMenus">
+          <desktop4:FileExplorerContextMenus>
+            <desktop5:ItemType Type="*"><desktop5:Verb Id="ViewWithCADscout" Clsid="615599F7-62BB-47E5-8FB5-81CF4C0B1DA8" /></desktop5:ItemType>
+          </desktop4:FileExplorerContextMenus>
+        </desktop4:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:SurrogateServer DisplayName="CADscout Lite right-click entry">
+              <com:Class Id="615599F7-62BB-47E5-8FB5-81CF4C0B1DA8" Path="CADscoutLiteMenu.dll" ThreadingModel="STA" />
+            </com:SurrogateServer>
+          </com:ComServer>
+        </com:Extension>
       </Extensions>
     </Application>
   </Applications>

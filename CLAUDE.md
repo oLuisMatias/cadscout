@@ -174,14 +174,19 @@ the MSIX packages are made from.
 - `src/Formats.h` lists the model file extensions used by the UI (Open dialog, arrow-key browsing, mm units): when adding a format,
   edit it there and in `formatOf` (`StepLoader.cpp`). Buttons and scroll bars share one look in `modernStyleSheet()`
   (`ModernStyle.h`); dialogs only add small overrides (padding).
-- MSIX decision (Lite): the Explorer right-click entry **"View with CADscout"** for model files is a fixed verb declared in
-  the MSIX `AppxManifest.xml` file associations (decided with the user: no Settings switch, because registry changes by a
-  packaged app are invisible to Explorer, so an in-app on/off switch cannot work in the Store version). To check when
-  building the package: whether Windows 11 shows it in the short menu or under "Show more options". Full gets no entry
-  for now.
+- Right-click entry "View with CADscout" (Lite, decided with the user: fixed, no Settings switch, because registry changes by a
+  packaged app are invisible to Explorer). A manifest file-type verb only shows for the file types where CADscout is the default
+  program, so it is a real Explorer command instead: `src/contextmenu/ContextMenu.cpp` (target `CADscoutLiteMenu`, `IExplorerCommand`,
+  DLL without Qt, static runtime, shipped in the Lite package) declared in `msix/AppxManifest.xml` (`desktop4/desktop5` context menu
+  for `*` + `com:SurrogateServer`, CLSID `615599F7-...`). `GetState` hides it unless the file has one of the 14 model extensions
+  (list also in `src/Formats.h`: keep both in sync); `Invoke` starts the app through `IApplicationActivationManager` with the file
+  path; the icon is the exe's (`CADscoutLite.exe,0`). Declaring one ItemType per extension was tried first: Windows showed it only
+  for some types (not .stp/.step/.iges/.brep/.vrml/.gltf/.glb), `*` + GetState works for all.
 - MSIX build (Lite, version 0.2.0 = first release to publish): run `build_all.bat`, then `build_msix.bat` -> `build\CADscoutLite.msix`
   (unsigned; the Store signs it). Manifest: `msix/AppxManifest.xml` (placeholders Identity Name `CADscout.Lite` / Publisher
   `CN=CADscout`: replace with the values from Partner Center "Product identity" before upload; `@VERSION@` becomes x.y.z.0),
   tile images `msix/Assets/` (made from `resources/logo/app-icon-lite.png`). `makeappx` validated the manifest, but the package
-  was NOT installed on a PC yet (needs a signed test copy and admin rights): still to check - double-click and "Open with",
-  the "View with CADscout" verb (short menu or "Show more options"), the VCLibs dependency. Full has no MSIX yet.
+  was tested on this PC by registering the unpacked folder (Developer Mode on; `Add-AppxPackage -Register build\msix_stage\AppxManifest.xml`,
+  remove with `Get-AppxPackage CADscout.Lite | Remove-AppxPackage`, needed before rebuilding): Start menu entry, running as a package, "Open with",
+  double-click as default, and the right-click entry with icon for all 14 types (classic menu, Windows 11) work; the entry is hidden for .txt.
+  Not tested: a signed install, the Windows App Certification Kit, Windows 10. Full has no MSIX yet.

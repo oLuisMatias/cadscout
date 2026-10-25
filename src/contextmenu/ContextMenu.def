@@ -1,0 +1,4 @@
+LIBRARY CADscoutLiteMenu
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE

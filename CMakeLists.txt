@@ -74,6 +74,15 @@ target_sources(CADscout PRIVATE resources/app-full.rc)
 target_sources(CADscoutLite PRIVATE resources/app-lite.rc)
 target_compile_definitions(CADscoutLite PRIVATE CADSCOUT_LITE)
 
+# Explorer right-click entry "View with CADscout" (part of the Lite Store package, see msix/AppxManifest.xml). A small DLL
+# without Qt; the C++ runtime is linked in, so it needs no extra files.
+add_library(CADscoutLiteMenu SHARED src/contextmenu/ContextMenu.cpp src/contextmenu/ContextMenu.def)
+set_target_properties(CADscoutLiteMenu PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
+target_link_libraries(CADscoutLiteMenu PRIVATE ole32 shell32 shlwapi runtimeobject)
+if(MSVC)
+  target_compile_options(CADscoutLiteMenu PRIVATE /utf-8)
+endif()
+
 add_executable(make_sample tools/make_sample.cpp)
 target_link_libraries(make_sample PRIVATE
   TKernel TKMath TKG3d TKGeomBase TKBRep TKTopAlgo TKPrim TKBO TKMesh TKXSBase TKXCAF TKLCAF TKCAF TKCDF TKDE TKDESTEP TKDEIGES TKDESTL TKRWMesh TKShHealing)
@@ -97,6 +106,7 @@ install(TARGETS CADscoutLite
   RUNTIME_DEPENDENCY_SET CADscoutLiteRuntime
   RUNTIME DESTINATION . COMPONENT Lite
 )
+install(TARGETS CADscoutLiteMenu RUNTIME DESTINATION . COMPONENT Lite)
 install(RUNTIME_DEPENDENCY_SET CADscoutLiteRuntime
   DIRECTORIES "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
   PRE_EXCLUDE_REGEXES
