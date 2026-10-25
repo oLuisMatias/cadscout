@@ -320,6 +320,8 @@ MainWindow::MainWindow() {
         popup_->raise();
     };
     connect(viewport_, &Viewport::pressed, this, [this] { popup_->hide(); });
+    connect(viewport_, &Viewport::graphicsFailed, this,
+            [this](const QString& message) { QMessageBox::critical(this, "CADscout", message); });
     connect(viewport_, &Viewport::partClicked, this, [this, showPopup](int part, const QPoint& pos) {
         if (!model_ || part < 0 || size_t(part) >= model_->parts.size()) return;
         const Part& p = model_->parts[size_t(part)];
@@ -614,6 +616,10 @@ void MainWindow::changeEvent(QEvent* e) {
 #endif
 
 void MainWindow::openDialog() {
+    if (loading_) {
+        setStatus("Still loading " + QFileInfo(currentFile_).fileName() + " - please wait until it has finished.");
+        return;
+    }
     QSettings s;
     const QString dir = s.value("lastDir").toString();
     const QString path = QFileDialog::getOpenFileName(
@@ -744,7 +750,10 @@ void MainWindow::openInFull() {
 #endif
 
 void MainWindow::openFile(const QString& path) {
-    if (loading_) return;
+    if (loading_) {  // one file at a time: say so instead of ignoring the request
+        setStatus("Still loading " + QFileInfo(currentFile_).fileName() + " - please wait until it has finished.");
+        return;
+    }
     loading_ = true;
     if (popup_) popup_->hide();
     currentFile_ = path;

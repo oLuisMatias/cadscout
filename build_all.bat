@@ -20,6 +20,8 @@ if errorlevel 1 (
 )
 
 echo === 2/2 Staging the packages ===
+rem Start from empty folders, so files of earlier builds (renamed or removed DLLs) never end up in a package.
+if exist build\package rmdir /s /q build\package
 cmake --install build --config Release --prefix build\package\Lite --component Lite >nul || exit /b 1
 cmake --install build --config Release --prefix build\package\Full --component Lite >nul || exit /b 1
 cmake --install build --config Release --prefix build\package\Full --component Full >nul || exit /b 1

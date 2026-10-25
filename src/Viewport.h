@@ -7,6 +7,7 @@
 #include <QOpenGLShaderProgram>
 #include <QOpenGLVertexArrayObject>
 #include <QOpenGLWidget>
+#include <QElapsedTimer>
 #include <QPoint>
 #include <QQuaternion>
 #include <QVector2D>
@@ -46,6 +47,7 @@ signals:
     void plateClicked(int plate, const QPoint& pos);  // a click on a file print plate (index into Model::plates)
     void orientationChanged(const QQuaternion& camToWorld);
     void partSelected(int part);  // -1 when the selection is cleared
+    void graphicsFailed(const QString& message);  // the graphics driver could not build the shaders
 
 protected:
     void initializeGL() override;
@@ -130,4 +132,10 @@ private:
     int selected_ = -1;
     QPoint pressPos_;
     bool leftPressed_ = false;
+    // Zooming with the wheel keeps the point under the cursor fixed, so that point is only looked up once per burst
+    // of wheel events (the look-up renders the model).
+    bool wheelValid_ = false;
+    QPoint wheelPos_;
+    QVector3D wheelPoint_;
+    QElapsedTimer wheelTimer_;
 };

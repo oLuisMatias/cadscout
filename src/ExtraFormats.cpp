@@ -74,6 +74,8 @@ std::vector<ZipEntry> zipEntries(const Bytes& z) {
         e.csize = rd32(z, p + 20);
         e.usize = rd32(z, p + 24);
         e.offset = rd32(z, p + 42);
+        if (e.csize == 0xFFFFFFFFu || e.usize == 0xFFFFFFFFu || e.offset == 0xFFFFFFFFu)
+            throw std::runtime_error("This 3MF file is larger than 4 GB (zip64), which is not supported.");
         const size_t nameLen = rd16(z, p + 28), extraLen = rd16(z, p + 30), commentLen = rd16(z, p + 32);
         if (p + 46 + nameLen > z.size()) throw badZip();
         e.name.assign(reinterpret_cast<const char*>(z.data() + p + 46), nameLen);
@@ -89,6 +91,8 @@ Bytes zipRead(const Bytes& z, const ZipEntry& e) {
     if (start + e.csize > z.size()) throw badZip();
     if (e.method == 0) return Bytes(z.begin() + std::ptrdiff_t(start), z.begin() + std::ptrdiff_t(start + e.csize));
     if (e.method != 8) throw std::runtime_error("The 3MF file uses an unsupported zip compression.");
+    // Deflate cannot shrink data by more than about 1000:1: a bigger claim in the header means a damaged file.
+    if (e.usize > uint64_t(e.csize) * 1100 + 4096) throw badZip();
     Bytes out(e.usize);
     z_stream zs{};
     if (inflateInit2(&zs, -MAX_WBITS) != Z_OK) throw badZip();
@@ -1001,6 +1005,65 @@ bool aciColor(int aci, std::array<float, 3>& c) {
     return false;
 }
 
+// DXF stores circles, arcs and 2D polylines in an "object coordinate system" given by the extrusion direction
+// (groups 210/220/230); this is the standard arbitrary-axis rule to get back to world coordinates.
+struct Ocs {
+    Vec3 ax{1, 0, 0}, ay{0, 1, 0}, n{0, 0, 1};
+    bool identity = true;
+};
+
+Ocs makeOcs(double nx, double ny, double nz) {
+    Ocs o;
+    const double len = std::sqrt(nx * nx + ny * ny + nz * nz);
+    if (len < 1e-12) return o;
+    nx /= len; ny /= len; nz /= len;
+    if (std::fabs(nx) < 1e-9 && std::fabs(ny) < 1e-9 && nz > 0) return o;
+    o.identity = false;
+    o.n = {nx, ny, nz};
+    // Ax = (N nearly along Z) ? Y x N : Z x N
+    Vec3 a = (std::fabs(nx) < 1.0 / 64 && std::fabs(ny) < 1.0 / 64) ? Vec3{nz, 0, -nx} : Vec3{-ny, nx, 0};
+    const double al = std::sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+    a = {a[0] / al, a[1] / al, a[2] / al};
+    o.ax = a;
+    o.ay = {ny * a[2] - nz * a[1], nz * a[0] - nx * a[2], nx * a[1] - ny * a[0]};  // N x Ax
+    return o;
+}
+
+Vec3 toWorld(const Ocs& o, const Vec3& p) {
+    if (o.identity) return p;
+    return {o.ax[0] * p[0] + o.ay[0] * p[1] + o.n[0] * p[2], o.ax[1] * p[0] + o.ay[1] * p[1] + o.n[1] * p[2],
+            o.ax[2] * p[0] + o.ay[2] * p[1] + o.n[2] * p[2]};
+}
+
+// Points of a polyline in which vertex i has bulge `bulge[i]` (tangent of a quarter of the arc angle, positive =
+// counter-clockwise) towards the next vertex; arcs are replaced by short straight pieces.
+std::vector<Vec3> expandBulges(const std::vector<Vec3>& pts, const std::vector<double>& bulge, bool closed) {
+    std::vector<Vec3> out;
+    const size_t n = pts.size();
+    if (n == 0) return out;
+    const size_t segments = closed ? n : n - 1;
+    for (size_t i = 0; i < segments; ++i) {
+        const Vec3& p0 = pts[i];
+        const Vec3& p1 = pts[(i + 1) % n];
+        out.push_back(p0);
+        const double b = i < bulge.size() ? bulge[i] : 0.0;
+        const double dx = p1[0] - p0[0], dy = p1[1] - p0[1], d = std::sqrt(dx * dx + dy * dy);
+        if (std::fabs(b) < 1e-9 || d < 1e-12) continue;
+        const double theta = 4.0 * std::atan(b);  // signed sweep
+        const double offset = (d / 2.0) * (1.0 - b * b) / (2.0 * b);  // centre distance from the chord, to its left
+        const double cx = (p0[0] + p1[0]) / 2.0 - dy / d * offset, cy = (p0[1] + p1[1]) / 2.0 + dx / d * offset;
+        const double r = std::sqrt((p0[0] - cx) * (p0[0] - cx) + (p0[1] - cy) * (p0[1] - cy));
+        const double a0 = std::atan2(p0[1] - cy, p0[0] - cx);
+        const int steps = std::max(2, int(std::ceil(std::fabs(theta) / (3.14159265358979323846 / 16.0))));
+        for (int k = 1; k < steps; ++k) {
+            const double a = a0 + theta * k / steps;
+            out.push_back({cx + r * std::cos(a), cy + r * std::sin(a), p0[2] + (p1[2] - p0[2]) * k / steps});
+        }
+    }
+    out.push_back(closed ? pts.front() : pts.back());  // a closed outline ends where it started
+    return out;
+}
+
 struct DxfMeshAcc {
     SceneMesh mesh;
     std::map<Vec3, int> weld;
@@ -1085,7 +1148,9 @@ Scene readDxf(const std::string& path) {
     struct Poly {
         bool active = false;
         int flags = 0, m = 0, n = 0, key = 0;
+        Ocs ocs;
         std::vector<Vec3> pts;
+        std::vector<double> bulges;  // per vertex, 0 for straight segments
         std::vector<std::array<int, 4>> faces;
     } poly;
     auto finishPoly = [&]() {
@@ -1111,7 +1176,9 @@ Scene readDxf(const std::string& path) {
                     }
             }
         } else {
-            addPolyline(poly.pts, (poly.flags & 1) != 0);
+            std::vector<Vec3> pts = expandBulges(poly.pts, poly.bulges, (poly.flags & 1) != 0);
+            if (!(poly.flags & 8)) for (Vec3& p : pts) p = toWorld(poly.ocs, p);  // 2D polylines live in the OCS
+            addPolyline(pts, false);
         }
     };
 
@@ -1136,6 +1203,7 @@ Scene readDxf(const std::string& path) {
                     poly.pts.push_back(point(r, 10, 20, 30));
             } else {
                 poly.pts.push_back(point(r, 10, 20, 30));
+                poly.bulges.push_back(num(r, 42));
             }
             continue;
         }
@@ -1184,19 +1252,27 @@ Scene readDxf(const std::string& path) {
             poly.m = int(num(r, 71));
             poly.n = int(num(r, 72));
             poly.key = colorKey(r);
+            poly.ocs = makeOcs(num(r, 210), num(r, 220), num(r, 230, 1.0));
         } else if (t == "LINE") {
             addSeg(point(r, 10, 20, 30), point(r, 11, 21, 31));
         } else if (t == "LWPOLYLINE") {
             std::vector<Vec3> pts;
+            std::vector<double> bulges;
             const double elevation = num(r, 38);
             double px = 0;
             for (const DxfGroup& g : r.data) {
                 if (g.code == 10) px = std::strtod(g.value.c_str(), nullptr);
-                else if (g.code == 20) pts.push_back({px, std::strtod(g.value.c_str(), nullptr), elevation});
+                else if (g.code == 20) { pts.push_back({px, std::strtod(g.value.c_str(), nullptr), elevation}); bulges.push_back(0.0); }
+                else if (g.code == 42 && !bulges.empty()) bulges.back() = std::strtod(g.value.c_str(), nullptr);
             }
-            addPolyline(pts, (int(num(r, 70)) & 1) != 0);
+            const bool closed = (int(num(r, 70)) & 1) != 0;
+            const Ocs ocs = makeOcs(num(r, 210), num(r, 220), num(r, 230, 1.0));
+            std::vector<Vec3> flat = expandBulges(pts, bulges, closed);
+            for (Vec3& p : flat) p = toWorld(ocs, p);
+            addPolyline(flat, false);
         } else if (t == "CIRCLE" || t == "ARC") {
             const Vec3 c = point(r, 10, 20, 30);
+            const Ocs ocs = makeOcs(num(r, 210), num(r, 220), num(r, 230, 1.0));
             const double radius = num(r, 40);
             double a0 = 0, a1 = 360;
             if (t == "ARC") {
@@ -1208,7 +1284,7 @@ Scene readDxf(const std::string& path) {
             std::vector<Vec3> pts;
             for (int i = 0; i <= steps; ++i) {
                 const double a = (a0 + (a1 - a0) * i / steps) * 3.14159265358979323846 / 180.0;
-                pts.push_back({c[0] + radius * std::cos(a), c[1] + radius * std::sin(a), c[2]});
+                pts.push_back(toWorld(ocs, {c[0] + radius * std::cos(a), c[1] + radius * std::sin(a), c[2]}));
             }
             addPolyline(pts, false);
         } else {

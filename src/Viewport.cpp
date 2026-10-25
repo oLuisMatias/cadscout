@@ -1,6 +1,7 @@
 #include "Viewport.h"
 
 #include <QMouseEvent>
+#include <QTimer>
 #include <QWheelEvent>
 #include <algorithm>
 #include <cmath>
@@ -89,15 +90,18 @@ void Viewport::initializeGL() {
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_MULTISAMPLE);
 
-    meshProg_.addShaderFromSourceCode(QOpenGLShader::Vertex, kMeshVert);
-    meshProg_.addShaderFromSourceCode(QOpenGLShader::Fragment, kMeshFrag);
-    meshProg_.link();
-    lineProg_.addShaderFromSourceCode(QOpenGLShader::Vertex, kLineVert);
-    lineProg_.addShaderFromSourceCode(QOpenGLShader::Fragment, kLineFrag);
-    lineProg_.link();
-    bgProg_.addShaderFromSourceCode(QOpenGLShader::Vertex, kBgVert);
-    bgProg_.addShaderFromSourceCode(QOpenGLShader::Fragment, kBgFrag);
-    bgProg_.link();
+    auto build = [](QOpenGLShaderProgram& prog, const char* vertex, const char* fragment) {
+        return prog.addShaderFromSourceCode(QOpenGLShader::Vertex, vertex) &&
+               prog.addShaderFromSourceCode(QOpenGLShader::Fragment, fragment) && prog.link();
+    };
+    if (!build(meshProg_, kMeshVert, kMeshFrag) || !build(lineProg_, kLineVert, kLineFrag) ||
+        !build(bgProg_, kBgVert, kBgFrag)) {
+        const QString log = meshProg_.log() + lineProg_.log() + bgProg_.log();
+        QTimer::singleShot(0, this, [this, log] {
+            emit graphicsFailed("The graphics driver could not prepare the 3D view, so models cannot be shown. Please "
+                                "update your graphics driver.\n\n" + log.left(400));
+        });
+    }
     bgVao_.create();
 
     if (pendingUpload_) uploadModel();
@@ -122,6 +126,7 @@ void Viewport::setDarkTheme(bool dark) {
 
 void Viewport::setModel(std::shared_ptr<Model> model) {
     model_ = std::move(model);
+    wheelValid_ = false;
     selected_ = -1;
     emit partSelected(-1);
     pendingUpload_ = true;
@@ -327,10 +332,11 @@ void Viewport::uploadModel() {
         g->vao.bind();
         g->vbo.create();
         g->vbo.bind();
-        g->vbo.allocate(mb.vertices.data(), int(mb.vertices.size() * sizeof(float)));
+        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(mb.vertices.size() * sizeof(float)), mb.vertices.data(), GL_STATIC_DRAW);
         g->ibo.create();
         g->ibo.bind();
-        g->ibo.allocate(mb.indices.data(), int(mb.indices.size() * sizeof(uint32_t)));
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, GLsizeiptr(mb.indices.size() * sizeof(uint32_t)), mb.indices.data(),
+                     GL_STATIC_DRAW);
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), nullptr);
         glEnableVertexAttribArray(1);
@@ -345,7 +351,8 @@ void Viewport::uploadModel() {
         edgeVao_.bind();
         edgeVbo_.create();
         edgeVbo_.bind();
-        edgeVbo_.allocate(model_->edges.data(), int(model_->edges.size() * sizeof(float)));
+        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(model_->edges.size() * sizeof(float)), model_->edges.data(),
+                     GL_STATIC_DRAW);
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), nullptr);
         edgeVao_.release();
@@ -397,10 +404,12 @@ QMatrix4x4 Viewport::projMatrix() const {
 void Viewport::setPerspectiveEnabled(bool on) {
     if (perspective_ == on) return;
     perspective_ = on;
+    wheelValid_ = false;
     update();
 }
 
 void Viewport::fitToView() {
+    wheelValid_ = false;
     target_ = center_;
     distance_ = radius_ / std::sin(qDegreesToRadians(kFov * 0.5f)) * 1.05f;
     emit orientationChanged(orientation_);
@@ -454,7 +463,9 @@ void Viewport::paintGL() {
     bgProg_.release();
     glEnable(GL_DEPTH_TEST);
 
-    if (gpu_.empty()) return;
+    // Line-only models (a 2D DXF drawing) have no triangles but must still be drawn.
+    const bool linesOnly = gpu_.empty();
+    if (linesOnly && edgeVertexCount_ == 0) return;
 
     const QMatrix4x4 view = viewMatrix();
     const QMatrix4x4 mvp = projMatrix() * view;
@@ -481,10 +492,13 @@ void Viewport::paintGL() {
     }
     glDisable(GL_POLYGON_OFFSET_FILL);
 
-    if (showEdges_ && edgeVertexCount_ > 0) {
+    if ((showEdges_ || linesOnly) && edgeVertexCount_ > 0) {
         lineProg_.bind();
         lineProg_.setUniformValue("uMvp", mvp);
-        lineProg_.setUniformValue("uColor", dark_ ? QVector3D(0.02f, 0.02f, 0.03f) : QVector3D(0.08f, 0.08f, 0.10f));
+        // Edges are dark outlines on the surfaces; line-only drawings have no surfaces, so they take the contrasting colour.
+        const QVector3D edgeColor = linesOnly ? (dark_ ? QVector3D(0.86f, 0.89f, 0.95f) : QVector3D(0.10f, 0.12f, 0.16f))
+                                              : (dark_ ? QVector3D(0.02f, 0.02f, 0.03f) : QVector3D(0.08f, 0.08f, 0.10f));
+        lineProg_.setUniformValue("uColor", edgeColor);
         edgeVao_.bind();
         glDrawArrays(GL_LINES, 0, edgeVertexCount_);
         edgeVao_.release();
@@ -620,6 +634,7 @@ void Viewport::scaleAbout(const QVector3D& p, float factor) {
 
 void Viewport::mousePressEvent(QMouseEvent* e) {
     emit pressed();
+    wheelValid_ = false;
     if (e->button() == Qt::LeftButton && (e->modifiers() & kModMask) == 0) {
         pressPos_ = e->pos();
         leftPressed_ = true;
@@ -686,14 +701,22 @@ void Viewport::wheelEvent(QWheelEvent* e) {
     const QPoint pos = e->position().toPoint();
 
     QVector3D p;
-    if (!pickPoint(pos, p)) {
-        // No surface under the cursor: use the cursor ray at the depth of the view target
-        const QVector3D a = unproject(pos, -1.f), b = unproject(pos, 1.f);
-        const QVector3D n = cameraAxis(2);
-        const float denom = QVector3D::dotProduct(b - a, n);
-        const float t = std::abs(denom) > 1e-9f ? QVector3D::dotProduct(target_ - a, n) / denom : 0.f;
-        p = a + (b - a) * t;
+    if (wheelValid_ && pos == wheelPos_ && wheelTimer_.elapsed() < 1500) {
+        p = wheelPoint_;  // same cursor position as the last wheel step: the point stayed under the cursor
+    } else {
+        if (!pickPoint(pos, p)) {
+            // No surface under the cursor: use the cursor ray at the depth of the view target
+            const QVector3D a = unproject(pos, -1.f), b = unproject(pos, 1.f);
+            const QVector3D n = cameraAxis(2);
+            const float denom = QVector3D::dotProduct(b - a, n);
+            const float t = std::abs(denom) > 1e-9f ? QVector3D::dotProduct(target_ - a, n) / denom : 0.f;
+            p = a + (b - a) * t;
+        }
+        wheelPos_ = pos;
+        wheelPoint_ = p;
+        wheelValid_ = true;
     }
+    wheelTimer_.restart();
     scaleAbout(p, std::pow(0.88f, steps));
     e->accept();
 }

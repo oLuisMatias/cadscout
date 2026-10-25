@@ -27,7 +27,7 @@ namespace {
 bool isModelFile(IShellItemArray* items) {
     if (!items) return false;
     DWORD count = 0;
-    if (FAILED(items->GetCount(&count)) || count == 0) return false;
+    if (FAILED(items->GetCount(&count)) || count != 1) return false;  // CADscout Lite shows one model at a time
     IShellItem* item = nullptr;
     if (FAILED(items->GetItemAt(0, &item))) return false;
     PWSTR file = nullptr;
