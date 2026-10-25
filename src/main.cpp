@@ -1,8 +1,25 @@
 #include <QApplication>
+#include <QMessageBox>
+#include <QOffscreenSurface>
+#include <QOpenGLContext>
 #include <QSettings>
 #include <QSurfaceFormat>
 
 #include "MainWindow.h"
+
+// True when this PC can give us an OpenGL 3.3 context, which the 3D view needs (old graphics cards and some
+// virtual machines cannot).
+static bool openGlAvailable() {
+    QOpenGLContext context;
+    context.setFormat(QSurfaceFormat::defaultFormat());
+    if (!context.create()) return false;
+    QOffscreenSurface surface;
+    surface.setFormat(context.format());
+    surface.create();
+    if (!surface.isValid() || !context.makeCurrent(&surface)) return false;
+    const QSurfaceFormat got = context.format();
+    return got.majorVersion() > 3 || (got.majorVersion() == 3 && got.minorVersion() >= 3);
+}
 
 int main(int argc, char** argv) {
     QSurfaceFormat fmt;
@@ -14,9 +31,9 @@ int main(int argc, char** argv) {
 
     QApplication app(argc, argv);
     QApplication::setOrganizationName("CADscout");
-#ifdef CADSCOUT_LIGHT
-    QApplication::setApplicationName("CADscout Light");
-    QApplication::setApplicationDisplayName("CADscout Light");
+#ifdef CADSCOUT_LITE
+    QApplication::setApplicationName("CADscout Lite");
+    QApplication::setApplicationDisplayName("CADscout Lite");
 #else
     QApplication::setApplicationName("CADscout");
     QApplication::setApplicationDisplayName("CADscout Full");
@@ -27,13 +44,21 @@ int main(int argc, char** argv) {
     {
         QSettings current;
         if (current.allKeys().isEmpty()) {
-#ifdef CADSCOUT_LIGHT
+#ifdef CADSCOUT_LITE
             QSettings old("StepViewer", "STEP Viewer Light");
 #else
             QSettings old("StepViewer", "STEP Viewer");
 #endif
             for (const QString& key : old.allKeys()) current.setValue(key, old.value(key));
         }
+    }
+
+    if (!openGlAvailable()) {
+        QMessageBox::critical(nullptr, QApplication::applicationDisplayName(),
+                              "The 3D view needs a graphics card or driver that supports OpenGL 3.3, and this computer "
+                              "does not provide it.\n\nPlease update your graphics driver and try again. In a virtual "
+                              "machine, turn on 3D acceleration.");
+        return 1;
     }
 
     MainWindow w;

@@ -64,7 +64,7 @@ QString iconFontFamily() {
     return "Segoe MDL2 Assets";
 }
 
-#ifdef CADSCOUT_LIGHT
+#ifdef CADSCOUT_LITE
 // Invisible strip along a window edge/corner that starts a native resize.
 class ResizeGrip : public QWidget {
 public:
@@ -85,9 +85,9 @@ private:
 }  // namespace
 
 MainWindow::MainWindow() {
-#ifdef CADSCOUT_LIGHT
+#ifdef CADSCOUT_LITE
     setWindowFlag(Qt::FramelessWindowHint);
-    setWindowTitle("CADscout Light");
+    setWindowTitle("CADscout Lite");
 #else
     setWindowTitle(QString());  // empty: Qt shows just the application display name, "CADscout Full"
 #endif
@@ -174,12 +174,12 @@ MainWindow::MainWindow() {
     edgesBtn->setChecked(true);
     auto* settingsBtn = makeButton("Settings", "settings", "Settings");
     auto* aboutBtn = makeButton("About", "info-circle", "About CADscout (F1)");
-#ifdef CADSCOUT_LIGHT
-    auto* fullBtn = makeButton("Open in Full", "external-link", "Open this model in the Full edition");
+#ifdef CADSCOUT_LITE
+    auto* fullBtn = makeButton("Open in Full", "external-link", "Open this model in the Full edition (coming soon)");
 #endif
 
     connect(openBtn_, &QToolButton::clicked, this, &MainWindow::openDialog);
-#ifdef CADSCOUT_LIGHT
+#ifdef CADSCOUT_LITE
     connect(fullBtn, &QToolButton::clicked, this, &MainWindow::openInFull);
 #endif
     connect(treeBtn_, &QToolButton::toggled, this, [this](bool open) {
@@ -209,7 +209,7 @@ MainWindow::MainWindow() {
         if (popup_) popup_->hide();
     });
     addShortcut(Qt::Key_F, [this] { viewport_->fitToView(); });
-#ifndef CADSCOUT_LIGHT
+#ifndef CADSCOUT_LITE
     addShortcut(Qt::Key_E, [edgesBtn] { edgesBtn->toggle(); });
     addShortcut(Qt::Key_H, [this] { viewport_->goHome(); });
     addShortcut(Qt::Key_T, [this] {
@@ -226,13 +226,13 @@ MainWindow::MainWindow() {
     auto* homeRow = new QHBoxLayout(homePanel_);
     homeRow->setContentsMargins(6, 6, 6, 6);
     auto* homeBtn = new QToolButton(homePanel_);
-#ifndef CADSCOUT_LIGHT
+#ifndef CADSCOUT_LITE
     homeBtn->setText("Home");
     homeBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
 #endif
     homeBtn->setIconSize(QSize(20, 20));
     setBtnIcon(homeBtn, "home");
-#ifdef CADSCOUT_LIGHT
+#ifdef CADSCOUT_LITE
     homeBtn->setToolTip("Isometric view, fit to screen");
 #else
     homeBtn->setToolTip("Isometric view, fit to screen (H)");
@@ -242,7 +242,7 @@ MainWindow::MainWindow() {
     homeBtn->setStyleSheet(btnStyle);
     homeRow->addWidget(homeBtn);
     connect(homeBtn, &QToolButton::clicked, viewport_, &Viewport::goHome);
-#ifdef CADSCOUT_LIGHT
+#ifdef CADSCOUT_LITE
     tree_->hide();
     treeBtn_->hide();
     fitBtn->hide();
@@ -355,7 +355,7 @@ MainWindow::MainWindow() {
     connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, applyScheme);
 
     row->addStretch(1);
-#ifdef CADSCOUT_LIGHT
+#ifdef CADSCOUT_LITE
     row->setContentsMargins(8, 0, 0, 0);
     // Icon-only buttons: Open on the left; Open in Full and Settings go right, before the window controls.
     row->removeWidget(settingsBtn);
@@ -390,7 +390,7 @@ void MainWindow::refreshIcons() {
     for (auto& [b, name] : iconButtons_) b->setIcon(tablerIcon(name, fg, Qt::white, 20, devicePixelRatioF()));
     if (treeBtn_) treeBtn_->setIcon(tablerIcon(treeBtn_->isChecked() ? "arrow-bar-left" : "arrow-bar-right", fg, fg, 18,
                                                devicePixelRatioF()));
-#ifdef CADSCOUT_LIGHT
+#ifdef CADSCOUT_LITE
     if (perspBtn_)
         perspBtn_->setIcon(tablerIcon(perspBtn_->isChecked() ? "perspective" : "perspective-off", fg, fg, 20,
                                       devicePixelRatioF()));
@@ -408,7 +408,7 @@ void MainWindow::showTree() {
     if (treeBtn_->isEnabled()) treeBtn_->setChecked(true);
 }
 
-#ifndef CADSCOUT_LIGHT
+#ifndef CADSCOUT_LITE
 void MainWindow::updateTreeAvailability() {
     const bool single = model_ && model_->singleObject;
     if (single) {
@@ -455,7 +455,7 @@ void MainWindow::layoutOverlays() {
     cube_->move(w - cube_->width() - 10, h - cube_->height() - 10);
     cube_->raise();
     homePanel_->adjustSize();
-#ifdef CADSCOUT_LIGHT
+#ifdef CADSCOUT_LITE
     homePanel_->move(w - homePanel_->width() - 10, h - homePanel_->height() - 10);
 #else
     homePanel_->move(cube_->x() - homePanel_->width() - 6, h - homePanel_->height() - 14);
@@ -470,7 +470,7 @@ void MainWindow::layoutOverlays() {
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* e) {
     if (obj == viewport_ && e->type() == QEvent::Resize) layoutOverlays();
-#ifdef CADSCOUT_LIGHT
+#ifdef CADSCOUT_LITE
     if (obj == closeBtn_ && (e->type() == QEvent::Enter || e->type() == QEvent::Leave)) {
         closeHover_ = e->type() == QEvent::Enter;
         updateWindowControls();
@@ -502,7 +502,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* e) {
     return QMainWindow::eventFilter(obj, e);
 }
 
-#ifdef CADSCOUT_LIGHT
+#ifdef CADSCOUT_LITE
 void MainWindow::buildWindowControls(QHBoxLayout* row, const QString& btnStyle) {
     // Same look and size as the Open / Open in Full / Settings buttons.
     auto make = [&](const QString& tip) {
@@ -622,12 +622,13 @@ void MainWindow::openSettings() {
     }
 }
 
-#ifdef CADSCOUT_LIGHT
+#ifdef CADSCOUT_LITE
 void MainWindow::openInFull() {
     const QString fullPath = QDir(QCoreApplication::applicationDirPath()).filePath("CADscoutFull.exe");
     if (!QFileInfo::exists(fullPath)) {
-        QMessageBox::information(this, "CADscout Full is not installed",
-                                 "Install the full version (CADscout Full) to open this model in it.");
+        QMessageBox::information(this, "CADscout Full is coming soon",
+                                 "CADscout Full will be available soon. Once it is released, install it to open this "
+                                 "model in it.");
         return;
     }
 
@@ -684,8 +685,8 @@ void MainWindow::onLoaded(std::shared_ptr<Model> model, const QString& path, con
         return;
     }
     model_ = model;
-#ifdef CADSCOUT_LIGHT
-    setWindowTitle(QFileInfo(path).fileName() + " - CADscout Light");
+#ifdef CADSCOUT_LITE
+    setWindowTitle(QFileInfo(path).fileName() + " - CADscout Lite");
 #else
     buildTree();
     updateTreeAvailability();

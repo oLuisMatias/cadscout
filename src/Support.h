@@ -7,5 +7,5 @@
 // Microsoft Store (policy 10.8.2): plain donations through a third-party payment service are allowed if
 // nothing is given in return (no features, no ad removal), the provider is named on the button, and the use of a
 // third-party payment service is declared in Partner Center when the app is submitted.
-inline constexpr const char* kBuyMeACoffeeUrl = "";
-inline constexpr const char* kKofiUrl = "";
+inline constexpr const char* kBuyMeACoffeeUrl = "https://www.buymeacoffee.com/luismatias";
+inline constexpr const char* kKofiUrl = "https://ko-fi.com/oluismatias";

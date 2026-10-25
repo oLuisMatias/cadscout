@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-# The version number lives in ONE place: "version-string" in vcpkg.json. The apps, the installer and
+# The version number lives in ONE place: "version-string" in vcpkg.json. The apps and
 # build\version.txt all read it from there. To release a new version, change it there.
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg.json" CADSCOUT_MANIFEST)
 string(JSON CADSCOUT_VERSION GET "${CADSCOUT_MANIFEST}" "version-string")
@@ -47,6 +47,7 @@ set(CADSCOUT_SOURCES
   src/Icons.h
   resources/icons.qrc
   resources/legal.qrc
+  resources/logo.qrc
 )
 
 function(add_cadscout target output_name)
@@ -67,8 +68,11 @@ function(add_cadscout target output_name)
 endfunction()
 
 add_cadscout(CADscout CADscoutFull)
-add_cadscout(CADscoutLight CADscoutLight)
-target_compile_definitions(CADscoutLight PRIVATE CADSCOUT_LIGHT)
+add_cadscout(CADscoutLite CADscoutLite)
+# Each edition has its own program icon (the .ico files are made from resources/logo/app-icon-*.png).
+target_sources(CADscout PRIVATE resources/app-full.rc)
+target_sources(CADscoutLite PRIVATE resources/app-lite.rc)
+target_compile_definitions(CADscoutLite PRIVATE CADSCOUT_LITE)
 
 add_executable(make_sample tools/make_sample.cpp)
 target_link_libraries(make_sample PRIVATE
@@ -79,21 +83,21 @@ find_file(QWINDOWS_PLUGIN qwindows.dll
   PATHS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/Qt6/plugins/platforms"
   NO_DEFAULT_PATH)
 if(QWINDOWS_PLUGIN)
-  foreach(viewer_target IN ITEMS CADscout CADscoutLight)
+  foreach(viewer_target IN ITEMS CADscout CADscoutLite)
     add_custom_command(TARGET ${viewer_target} POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${viewer_target}>/platforms"
       COMMAND ${CMAKE_COMMAND} -E copy_if_different "${QWINDOWS_PLUGIN}" "$<TARGET_FILE_DIR:${viewer_target}>/platforms/")
   endforeach()
 
-  install(FILES "${QWINDOWS_PLUGIN}" DESTINATION platforms COMPONENT Light)
+  install(FILES "${QWINDOWS_PLUGIN}" DESTINATION platforms COMPONENT Lite)
   install(FILES "${QWINDOWS_PLUGIN}" DESTINATION platforms COMPONENT Full)
 endif()
 
-install(TARGETS CADscoutLight
-  RUNTIME_DEPENDENCY_SET CADscoutLightRuntime
-  RUNTIME DESTINATION . COMPONENT Light
+install(TARGETS CADscoutLite
+  RUNTIME_DEPENDENCY_SET CADscoutLiteRuntime
+  RUNTIME DESTINATION . COMPONENT Lite
 )
-install(RUNTIME_DEPENDENCY_SET CADscoutLightRuntime
+install(RUNTIME_DEPENDENCY_SET CADscoutLiteRuntime
   DIRECTORIES "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
   PRE_EXCLUDE_REGEXES
     "api-ms-.*" "ext-ms-.*"
@@ -102,7 +106,7 @@ install(RUNTIME_DEPENDENCY_SET CADscoutLightRuntime
   POST_EXCLUDE_REGEXES
     ".*/[Ww][Ii][Nn][Dd][Oo][Ww][Ss]/[Ss][Yy][Ss][Tt][Ee][Mm]32/.*"
     ".*/[Ww][Ii][Nn][Dd][Oo][Ww][Ss]/[Ss][Yy][Ss][Ww][Oo][Ww]64/.*"
-  RUNTIME DESTINATION . COMPONENT Light
+  RUNTIME DESTINATION . COMPONENT Lite
 )
 
 install(TARGETS CADscout
@@ -122,5 +126,5 @@ install(RUNTIME_DEPENDENCY_SET CADscoutFullRuntime
 )
 
 # License and third-party notices travel with both editions (also embedded in the app, see resources/legal.qrc).
-install(FILES LICENSE THIRD-PARTY-NOTICES.txt DESTINATION . COMPONENT Light)
+install(FILES LICENSE THIRD-PARTY-NOTICES.txt DESTINATION . COMPONENT Lite)
 install(FILES LICENSE THIRD-PARTY-NOTICES.txt DESTINATION . COMPONENT Full)

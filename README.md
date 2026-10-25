@@ -4,7 +4,7 @@
 
 Two editions are built from the same code:
 
-- **CADscout Light** – a small, minimal window for a quick look (orbit, pan, zoom, perspective on/off).
+- **CADscout Lite** – a small, minimal window for a quick look (orbit, pan, zoom, perspective on/off).
 - **CADscout Full** – toolbar, assembly tree, edges, view cube, home/fit, plus room for more tools (measure, section view, ...).
 
 ## What it opens
@@ -37,8 +37,7 @@ cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.c
 build_all.bat
 ```
 
-`build_all.bat` builds both editions, stages `build\package\Light` and `build\package\Full`, and builds
-`build\CADscoutSetup.exe` when [Inno Setup 6](https://jrsoftware.org/isinfo.php) is installed.
+`build_all.bat` builds both editions and stages `build\package\Lite` and `build\package\Full`.
 
 The version number lives only in `vcpkg.json` (`version-string`). Test models are in `samples/`.
 

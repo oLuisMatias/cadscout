@@ -21,8 +21,8 @@ QString readResource(const char* path) {
 }  // namespace
 
 AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent) {
-#ifdef CADSCOUT_LIGHT
-    const QString appName = "CADscout Light";
+#ifdef CADSCOUT_LITE
+    const QString appName = "CADscout Lite";
 #else
     const QString appName = "CADscout Full";
 #endif

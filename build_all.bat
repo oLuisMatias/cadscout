@@ -1,9 +1,9 @@
 @echo off
-rem Builds both apps, stages the installer packages and (if Inno Setup is installed) builds build\CADscoutSetup.exe.
+rem Builds both apps and stages the packages in build\package\Lite and build\package\Full.
 rem Run from anywhere: build_all.bat
 cd /d "%~dp0"
 
-echo === 0/3 Configuring (reads the version from vcpkg.json) ===
+echo === 0/2 Configuring (reads the version from vcpkg.json) ===
 cmake -S . -B build >nul
 if errorlevel 1 (
     echo CONFIGURE FAILED. Run "cmake -S . -B build" to see the reason.
@@ -12,28 +12,15 @@ if errorlevel 1 (
 set /p VERSION=<build\version.txt
 echo Version %VERSION%
 
-echo === 1/3 Building CADscout (Full) and CADscoutLight ===
-cmake --build build --config Release --target CADscout CADscoutLight
+echo === 1/2 Building CADscout (Full) and CADscoutLite ===
+cmake --build build --config Release --target CADscout CADscoutLite
 if errorlevel 1 (
-    echo BUILD FAILED. If CADscoutLight.exe is open, close it and run this again.
+    echo BUILD FAILED. If CADscoutLite.exe is open, close it and run this again.
     exit /b 1
 )
 
-echo === 2/3 Staging installer packages ===
-cmake --install build --config Release --prefix build\package\Light --component Light >nul || exit /b 1
-cmake --install build --config Release --prefix build\package\Full --component Light >nul || exit /b 1
+echo === 2/2 Staging the packages ===
+cmake --install build --config Release --prefix build\package\Lite --component Lite >nul || exit /b 1
+cmake --install build --config Release --prefix build\package\Full --component Lite >nul || exit /b 1
 cmake --install build --config Release --prefix build\package\Full --component Full >nul || exit /b 1
-
-echo === 3/3 Building the installer ===
-set "ISCC="
-where iscc >nul 2>nul && set "ISCC=iscc"
-if not defined ISCC if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
-if not defined ISCC if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles%\Inno Setup 6\ISCC.exe"
-if not defined ISCC if exist "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" set "ISCC=%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
-if not defined ISCC (
-    echo Inno Setup is not installed, so CADscoutSetup.exe was NOT built. Apps and packages are up to date.
-    exit /b 0
-)
-"%ISCC%" /DAppVersion=%VERSION% installer\CADscout.iss
-if errorlevel 1 exit /b 1
-echo Done: build\CADscoutSetup.exe (version %VERSION%)
+echo Done: Full and Lite are built and staged in build\package (version %VERSION%).

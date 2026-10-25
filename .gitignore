@@ -10,3 +10,4 @@ Thumbs.db
 # Test output
 *.bmp
 *.log
+!resources/logo/*.bmp

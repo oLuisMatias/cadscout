@@ -1,0 +1,8 @@
+<RCC>
+  <qresource prefix="/logo">
+    <file alias="button-buymeacoffee.svg">logo/button-buymeacoffee.svg</file>
+    <file alias="qr-buymeacoffee.bmp">logo/qr-buymeacoffee.bmp</file>
+    <file alias="button-kofi.bmp">logo/button-kofi.bmp</file>
+    <file alias="qr-kofi.bmp">logo/qr-kofi.bmp</file>
+  </qresource>
+</RCC>
