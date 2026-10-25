@@ -174,3 +174,14 @@ the MSIX packages are made from.
 - `src/Formats.h` lists the model file extensions used by the UI (Open dialog, arrow-key browsing, mm units): when adding a format,
   edit it there and in `formatOf` (`StepLoader.cpp`). Buttons and scroll bars share one look in `modernStyleSheet()`
   (`ModernStyle.h`); dialogs only add small overrides (padding).
+- MSIX decision (Lite): the Explorer right-click entry **"View with CADscout"** for model files is a fixed verb declared in
+  the MSIX `AppxManifest.xml` file associations (decided with the user: no Settings switch, because registry changes by a
+  packaged app are invisible to Explorer, so an in-app on/off switch cannot work in the Store version). To check when
+  building the package: whether Windows 11 shows it in the short menu or under "Show more options". Full gets no entry
+  for now.
+- MSIX build (Lite, version 0.2.0 = first release to publish): run `build_all.bat`, then `build_msix.bat` -> `build\CADscoutLite.msix`
+  (unsigned; the Store signs it). Manifest: `msix/AppxManifest.xml` (placeholders Identity Name `CADscout.Lite` / Publisher
+  `CN=CADscout`: replace with the values from Partner Center "Product identity" before upload; `@VERSION@` becomes x.y.z.0),
+  tile images `msix/Assets/` (made from `resources/logo/app-icon-lite.png`). `makeappx` validated the manifest, but the package
+  was NOT installed on a PC yet (needs a signed test copy and admin rights): still to check - double-click and "Open with",
+  the "View with CADscout" verb (short menu or "Show more options"), the VCLibs dependency. Full has no MSIX yet.

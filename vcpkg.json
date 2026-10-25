@@ -1,6 +1,6 @@
 {
   "name": "cadscout",
-  "version-string": "0.1.0",
+  "version-string": "0.2.0",
   "dependencies": [
     { "name": "opencascade", "default-features": false, "features": ["rapidjson"] },
     "qtsvg",

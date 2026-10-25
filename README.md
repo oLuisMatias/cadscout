@@ -38,6 +38,7 @@ build_all.bat
 ```
 
 `build_all.bat` builds both editions and stages `build\package\Lite` and `build\package\Full`.
+`build_msix.bat` then makes `build\CADscoutLite.msix`, the Microsoft Store package of CADscout Lite (needs the Windows SDK).
 
 The version number lives only in `vcpkg.json` (`version-string`). Test models are in `samples/`.
 

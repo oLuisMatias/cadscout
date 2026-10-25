@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Package description of CADscout Lite for the Microsoft Store (MSIX). build_msix.bat copies this file next to the program
+  files and replaces @VERSION@ (x.y.z.0, taken from vcpkg.json).
+
+  Before the Store upload, replace Identity Name / Publisher / PublisherDisplayName with the values Partner Center shows under
+  "Product identity" once the name has been reserved. The values below are placeholders for local builds.
+-->
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:uap2="http://schemas.microsoft.com/appx/manifest/uap/windows10/2"
+         xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         IgnorableNamespaces="uap uap2 uap3 rescap">
+
+  <Identity Name="CADscout.Lite" Publisher="CN=CADscout" Version="@VERSION@" ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>CADscout Lite</DisplayName>
+    <PublisherDisplayName>CADscout</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+    <!-- The C++ runtime is not bundled: the Store installs it from this package. -->
+    <PackageDependency Name="Microsoft.VCLibs.140.00.UWPDesktop" MinVersion="14.0.30035.0"
+                       Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="CADscoutLite" Executable="CADscoutLite.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="CADscout Lite"
+                          Description="Small viewer for CAD and 3D print files."
+                          BackgroundColor="transparent"
+                          Square150x150Logo="Assets\Square150x150Logo.png"
+                          Square44x44Logo="Assets\Square44x44Logo.png" />
+
+      <Extensions>
+        <!-- Model files: CADscout Lite appears in "Open with", and the right-click menu of these files gets the entry
+             "View with CADscout" (a fixed entry: it exists while the app is installed). The program receives the file
+             path as its first argument. -->
+        <uap3:Extension Category="windows.fileTypeAssociation">
+          <uap3:FileTypeAssociation Name="cadscoutmodels">
+            <uap:DisplayName>3D model</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.stp</uap:FileType>
+              <uap:FileType>.step</uap:FileType>
+              <uap:FileType>.igs</uap:FileType>
+              <uap:FileType>.iges</uap:FileType>
+              <uap:FileType>.brep</uap:FileType>
+              <uap:FileType>.stl</uap:FileType>
+              <uap:FileType>.obj</uap:FileType>
+              <uap:FileType>.ply</uap:FileType>
+              <uap:FileType>.wrl</uap:FileType>
+              <uap:FileType>.vrml</uap:FileType>
+              <uap:FileType>.gltf</uap:FileType>
+              <uap:FileType>.glb</uap:FileType>
+              <uap:FileType>.3mf</uap:FileType>
+              <uap:FileType>.dxf</uap:FileType>
+            </uap:SupportedFileTypes>
+            <uap2:SupportedVerbs>
+              <uap3:Verb Id="viewwithcadscout" Parameters="&quot;%1&quot;">View with CADscout</uap3:Verb>
+            </uap2:SupportedVerbs>
+          </uap3:FileTypeAssociation>
+        </uap3:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>
