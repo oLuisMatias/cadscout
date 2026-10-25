@@ -3,8 +3,8 @@
   Package description of CADscout Lite for the Microsoft Store (MSIX). build_msix.bat copies this file next to the program
   files and replaces @VERSION@ (x.y.z.0, taken from vcpkg.json).
 
-  Before the Store upload, replace Identity Name / Publisher / PublisherDisplayName with the values Partner Center shows under
-  "Product identity" once the name has been reserved. The values below are placeholders for local builds.
+  Identity Name, Publisher and PublisherDisplayName are the "Product identity" values of the app in Partner Center; they must
+  match them exactly or the Store rejects the package.
 -->
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
@@ -15,11 +15,11 @@
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
          IgnorableNamespaces="uap uap3 desktop4 desktop5 com rescap">
 
-  <Identity Name="CADscout.Lite" Publisher="CN=CADscout" Version="@VERSION@" ProcessorArchitecture="x64" />
+  <Identity Name="LuissApps.CADscoutLite" Publisher="CN=8D1AC23B-6C40-475C-903A-77AE0F2503F1" Version="@VERSION@" ProcessorArchitecture="x64" />
 
   <Properties>
     <DisplayName>CADscout Lite</DisplayName>
-    <PublisherDisplayName>CADscout</PublisherDisplayName>
+    <PublisherDisplayName>Luis's Apps</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
 
