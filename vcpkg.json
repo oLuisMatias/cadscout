@@ -1,5 +1,5 @@
 {
-  "name": "step-viewer",
+  "name": "cadscout",
   "version-string": "0.1.0",
   "dependencies": [
     { "name": "opencascade", "default-features": false, "features": ["rapidjson"] },

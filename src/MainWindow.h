@@ -30,7 +30,7 @@ protected:
     void dragEnterEvent(QDragEnterEvent* e) override;
     void dropEvent(QDropEvent* e) override;
     bool eventFilter(QObject* obj, QEvent* e) override;
-#ifdef STEPVIEWER_LIGHT
+#ifdef CADSCOUT_LIGHT
     void resizeEvent(QResizeEvent* e) override;
     void changeEvent(QEvent* e) override;
 #endif
@@ -38,12 +38,12 @@ protected:
 private slots:
     void openDialog();
     void openSettings();
-#ifdef STEPVIEWER_LIGHT
+#ifdef CADSCOUT_LIGHT
     void openInFull();
 #endif
 
 private:
-#ifdef STEPVIEWER_LIGHT
+#ifdef CADSCOUT_LIGHT
     void buildWindowControls(QHBoxLayout* row, const QString& btnStyle);
     void updateWindowControls();
     void layoutResizeGrips();
@@ -54,7 +54,7 @@ private:
     void refreshIcons();
     void setBtnIcon(QToolButton* b, const QString& name);
     void buildTree();
-#ifndef STEPVIEWER_LIGHT
+#ifndef CADSCOUT_LIGHT
     void updateTreeAvailability();  // hides the tree and disables its button for one-object formats
     bool treeWasOpen_ = true;       // the user's tree choice, restored when a multi-object file is opened
 #endif
@@ -80,7 +80,7 @@ private:
     QString screenshotPath_;
     QString info_;
     QString currentFile_;
-#ifdef STEPVIEWER_LIGHT
+#ifdef CADSCOUT_LIGHT
     QToolButton* minBtn_ = nullptr;
     QToolButton* maxBtn_ = nullptr;
     QToolButton* closeBtn_ = nullptr;

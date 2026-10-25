@@ -7,16 +7,16 @@
 
 [Setup]
 AppId={{A0C3CF48-9BE9-4D22-BD4F-8E8977EA62D5}
-AppName=STEP Viewer
+AppName=CADscout
 AppVersion={#AppVersion}
 VersionInfoVersion={#AppVersion}
-DefaultDirName={autopf}\STEP Viewer
-DefaultGroupName=STEP Viewer
+DefaultDirName={autopf}\CADscout
+DefaultGroupName=CADscout
 OutputDir=..\build
-OutputBaseFilename=StepViewerSetup
+OutputBaseFilename=CADscoutSetup
 ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin
-UninstallDisplayIcon={app}\StepViewerLight.exe
+UninstallDisplayIcon={app}\CADscoutLight.exe
 
 [Types]
 Name: "light"; Description: "Light Viewer only"
@@ -31,17 +31,17 @@ Source: "{#PackageRoot}\Light\*"; DestDir: "{app}"; Components: light; Flags: ig
 Source: "{#PackageRoot}\Full\*"; DestDir: "{app}"; Components: full; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\STEP Viewer Light"; Filename: "{app}\StepViewerLight.exe"; Components: light
-Name: "{group}\STEP Viewer Full"; Filename: "{app}\StepViewerFull.exe"; Components: full
-Name: "{autodesktop}\STEP Viewer Light"; Filename: "{app}\StepViewerLight.exe"; Tasks: desktopicon; Components: light
-Name: "{autodesktop}\STEP Viewer Full"; Filename: "{app}\StepViewerFull.exe"; Tasks: desktopicon; Components: full
+Name: "{group}\CADscout Light"; Filename: "{app}\CADscoutLight.exe"; Components: light
+Name: "{group}\CADscout Full"; Filename: "{app}\CADscoutFull.exe"; Components: full
+Name: "{autodesktop}\CADscout Light"; Filename: "{app}\CADscoutLight.exe"; Tasks: desktopicon; Components: light
+Name: "{autodesktop}\CADscout Full"; Filename: "{app}\CADscoutFull.exe"; Tasks: desktopicon; Components: full
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"
 
 [Run]
-Filename: "{app}\StepViewerLight.exe"; Description: "Launch STEP Viewer Light"; Flags: postinstall nowait skipifsilent; Check: IsLightType
-Filename: "{app}\StepViewerFull.exe"; Description: "Launch STEP Viewer Full"; Flags: postinstall nowait skipifsilent; Check: IsFullType
+Filename: "{app}\CADscoutLight.exe"; Description: "Launch CADscout Light"; Flags: postinstall nowait skipifsilent; Check: IsLightType
+Filename: "{app}\CADscoutFull.exe"; Description: "Launch CADscout Full"; Flags: postinstall nowait skipifsilent; Check: IsFullType
 
 [Code]
 function IsLightType: Boolean;

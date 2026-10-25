@@ -1,4 +1,4 @@
-# Small house made of 3 separate objects (Base, Tower, Roof) for STEP Viewer. Colours come from sample.mtl.
+# Small house made of 3 separate objects (Base, Tower, Roof) for CADscout. Colours come from sample.mtl.
 mtllib sample.mtl
 
 o Base

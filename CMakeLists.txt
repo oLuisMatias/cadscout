@@ -2,12 +2,12 @@ cmake_minimum_required(VERSION 3.21)
 
 # The version number lives in ONE place: "version-string" in vcpkg.json. The apps, the installer and
 # build\version.txt all read it from there. To release a new version, change it there.
-file(READ "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg.json" STEPVIEWER_MANIFEST)
-string(JSON STEPVIEWER_VERSION GET "${STEPVIEWER_MANIFEST}" "version-string")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg.json" CADSCOUT_MANIFEST)
+string(JSON CADSCOUT_VERSION GET "${CADSCOUT_MANIFEST}" "version-string")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg.json")
 
-project(StepViewer VERSION ${STEPVIEWER_VERSION} LANGUAGES CXX)
-file(WRITE "${CMAKE_BINARY_DIR}/version.txt" "${STEPVIEWER_VERSION}")
+project(CADscout VERSION ${CADSCOUT_VERSION} LANGUAGES CXX)
+file(WRITE "${CMAKE_BINARY_DIR}/version.txt" "${CADSCOUT_VERSION}")
 
 if(POLICY CMP0207)
   cmake_policy(SET CMP0207 NEW)
@@ -23,7 +23,7 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets OpenGLWidgets Svg)
 find_package(OpenCASCADE CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)  # reads the zip container of 3MF files
 
-set(STEPVIEWER_SOURCES
+set(CADSCOUT_SOURCES
   src/main.cpp
   src/MainWindow.cpp
   src/MainWindow.h
@@ -43,11 +43,11 @@ set(STEPVIEWER_SOURCES
   resources/icons.qrc
 )
 
-function(add_stepviewer target output_name)
-  add_executable(${target} WIN32 ${STEPVIEWER_SOURCES})
+function(add_cadscout target output_name)
+  add_executable(${target} WIN32 ${CADSCOUT_SOURCES})
   set_target_properties(${target} PROPERTIES OUTPUT_NAME "${output_name}")
   target_include_directories(${target} PRIVATE src)
-  target_compile_definitions(${target} PRIVATE STEPVIEWER_VERSION="${STEPVIEWER_VERSION}")
+  target_compile_definitions(${target} PRIVATE CADSCOUT_VERSION="${CADSCOUT_VERSION}")
   target_link_libraries(${target} PRIVATE
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::OpenGLWidgets Qt6::Svg
     TKernel TKMath TKG3d TKGeomBase TKBRep TKTopAlgo TKMesh
@@ -60,9 +60,9 @@ function(add_stepviewer target output_name)
   endif()
 endfunction()
 
-add_stepviewer(StepViewer StepViewerFull)
-add_stepviewer(StepViewerLight StepViewerLight)
-target_compile_definitions(StepViewerLight PRIVATE STEPVIEWER_LIGHT)
+add_cadscout(CADscout CADscoutFull)
+add_cadscout(CADscoutLight CADscoutLight)
+target_compile_definitions(CADscoutLight PRIVATE CADSCOUT_LIGHT)
 
 add_executable(make_sample tools/make_sample.cpp)
 target_link_libraries(make_sample PRIVATE
@@ -73,7 +73,7 @@ find_file(QWINDOWS_PLUGIN qwindows.dll
   PATHS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/Qt6/plugins/platforms"
   NO_DEFAULT_PATH)
 if(QWINDOWS_PLUGIN)
-  foreach(viewer_target IN ITEMS StepViewer StepViewerLight)
+  foreach(viewer_target IN ITEMS CADscout CADscoutLight)
     add_custom_command(TARGET ${viewer_target} POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${viewer_target}>/platforms"
       COMMAND ${CMAKE_COMMAND} -E copy_if_different "${QWINDOWS_PLUGIN}" "$<TARGET_FILE_DIR:${viewer_target}>/platforms/")
@@ -83,11 +83,11 @@ if(QWINDOWS_PLUGIN)
   install(FILES "${QWINDOWS_PLUGIN}" DESTINATION platforms COMPONENT Full)
 endif()
 
-install(TARGETS StepViewerLight
-  RUNTIME_DEPENDENCY_SET StepViewerLightRuntime
+install(TARGETS CADscoutLight
+  RUNTIME_DEPENDENCY_SET CADscoutLightRuntime
   RUNTIME DESTINATION . COMPONENT Light
 )
-install(RUNTIME_DEPENDENCY_SET StepViewerLightRuntime
+install(RUNTIME_DEPENDENCY_SET CADscoutLightRuntime
   DIRECTORIES "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
   PRE_EXCLUDE_REGEXES
     "api-ms-.*" "ext-ms-.*"
@@ -99,11 +99,11 @@ install(RUNTIME_DEPENDENCY_SET StepViewerLightRuntime
   RUNTIME DESTINATION . COMPONENT Light
 )
 
-install(TARGETS StepViewer
-  RUNTIME_DEPENDENCY_SET StepViewerFullRuntime
+install(TARGETS CADscout
+  RUNTIME_DEPENDENCY_SET CADscoutFullRuntime
   RUNTIME DESTINATION . COMPONENT Full
 )
-install(RUNTIME_DEPENDENCY_SET StepViewerFullRuntime
+install(RUNTIME_DEPENDENCY_SET CADscoutFullRuntime
   DIRECTORIES "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
   PRE_EXCLUDE_REGEXES
     "api-ms-.*" "ext-ms-.*"

@@ -13,7 +13,7 @@ From the repository root, build and stage both editions with a Visual Studio
 CMake build:
 
 ```powershell
-cmake --build build --config Release --target StepViewer StepViewerLight
+cmake --build build --config Release --target CADscout CADscoutLight
 cmake --install build --config Release --prefix .\build\package\Light --component Light
 cmake --install build --config Release --prefix .\build\package\Full --component Light
 cmake --install build --config Release --prefix .\build\package\Full --component Full
@@ -22,7 +22,7 @@ cmake --install build --config Release --prefix .\build\package\Full --component
 Install Inno Setup 6, then compile the installer:
 
 ```powershell
-iscc .\installer\StepViewer.iss
+iscc .\installer\CADscout.iss
 ```
 
-The installer is written to `build\StepViewerSetup.exe`.
+The installer is written to `build\CADscoutSetup.exe`.

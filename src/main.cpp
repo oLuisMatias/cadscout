@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QSettings>
 #include <QSurfaceFormat>
 
 #include "MainWindow.h"
@@ -12,14 +13,28 @@ int main(int argc, char** argv) {
     QSurfaceFormat::setDefaultFormat(fmt);
 
     QApplication app(argc, argv);
-    QApplication::setOrganizationName("StepViewer");
-#ifdef STEPVIEWER_LIGHT
-    QApplication::setApplicationName("STEP Viewer Light");
-    QApplication::setApplicationDisplayName("STEP Viewer Light");
+    QApplication::setOrganizationName("CADscout");
+#ifdef CADSCOUT_LIGHT
+    QApplication::setApplicationName("CADscout Light");
+    QApplication::setApplicationDisplayName("CADscout Light");
 #else
-    QApplication::setApplicationName("STEP Viewer");
-    QApplication::setApplicationDisplayName("STEP Viewer Full");
+    QApplication::setApplicationName("CADscout");
+    QApplication::setApplicationDisplayName("CADscout Full");
 #endif
+
+    // The app used to be called "STEP Viewer". Copy settings saved under that name (mouse controls, plate,
+    // mesh quality, last folder) once, the first time the new name runs.
+    {
+        QSettings current;
+        if (current.allKeys().isEmpty()) {
+#ifdef CADSCOUT_LIGHT
+            QSettings old("StepViewer", "STEP Viewer Light");
+#else
+            QSettings old("StepViewer", "STEP Viewer");
+#endif
+            for (const QString& key : old.allKeys()) current.setValue(key, old.value(key));
+        }
+    }
 
     MainWindow w;
     w.show();

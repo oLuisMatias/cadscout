@@ -1,17 +1,17 @@
-# STEP Viewer (Qt6 + OpenCASCADE, Windows)
+# CADscout (Qt6 + OpenCASCADE, Windows)
 
 ## Rule: rebuild after every code change
 After any prompt in which you change source, CMake or resource files, run `build_all.bat` in cmd
 (`cmd /c build_all.bat` from the project root) before finishing, and report whether it succeeded.
-It builds Full and Light, stages `build\package\*`, and builds `build\StepViewerSetup.exe` when Inno Setup 6 is installed
+It builds Full and Light, stages `build\package\*`, and builds `build\CADscoutSetup.exe` when Inno Setup 6 is installed
 (it skips that step with a message if not). If the Light exe is locked because the app is open, tell the user to close it.
 
 ## Rule: which app is being changed
 The user starts change requests with **[Light]**, **[Full]** or **[Both]**.
-- **[Light]**: change only the Light app. Put the code inside `#ifdef STEPVIEWER_LIGHT` (or a Light-only file/target)
+- **[Light]**: change only the Light app. Put the code inside `#ifdef CADSCOUT_LIGHT` (or a Light-only file/target)
   so Full is not affected.
-- **[Full]**: change only the Full app. Put the code inside `#ifndef STEPVIEWER_LIGHT` (or a Full-only target) so
-  Light is not affected. Libraries needed only by Full should be linked only to the `StepViewer` target.
+- **[Full]**: change only the Full app. Put the code inside `#ifndef CADSCOUT_LIGHT` (or a Full-only target) so
+  Light is not affected. Libraries needed only by Full should be linked only to the `CADscout` target.
 - **[Both]**: shared code, no `#ifdef` needed.
 - If a request changes app behaviour or looks and has no tag, **ask which app (Light, Full or Both) before editing**.
   Questions, explanations and build/installer-only tasks don't need a tag.
@@ -24,11 +24,11 @@ Not a software engineer: explain results in plain language and avoid jargon.
 A Windows desktop app for viewing 3D CAD models (STEP and other formats). Written in C++17 with Qt 6 (window/UI)
 and OpenCASCADE 8 (reads CAD files and turns surfaces into triangles). Libraries come from vcpkg (`vcpkg.json`,
 `vcpkg_installed/`). The same source builds two apps:
-- **StepViewerFull.exe** – normal window with toolbar, assembly tree (T), edges toggle (E), home view (H), fit (F),
+- **CADscoutFull.exe** – normal window with toolbar, assembly tree (T), edges toggle (E), home view (H), fit (F),
   settings.
-- **StepViewerLight.exe** (built with `STEPVIEWER_LIGHT`) – minimal frameless window with its own min/max/close
+- **CADscoutLight.exe** (built with `CADSCOUT_LIGHT`) – minimal frameless window with its own min/max/close
   buttons and resize grips, icon-only toolbar, no tree, perspective toggle, and an **Open in Full** button that
-  launches `StepViewerFull.exe` from the same folder.
+  launches `CADscoutFull.exe` from the same folder.
 
 How it works:
 - `main.cpp` – sets up OpenGL 3.3, reads command-line options: a file path, `--screenshot <file>`, `--tree`,
@@ -45,9 +45,15 @@ How it works:
 - `SettingsDialog` – searchable settings for mouse controls and mesh quality.
 - `Icons.h` + `resources/icons/` – Tabler SVG icons (MIT), recoloured for the theme.
 
-Packaging: `CMakeLists.txt` defines targets `StepViewer` (Full), `StepViewerLight`, `make_sample`, and install
-components Light/Full that copy the needed DLLs. `installer/StepViewer.iss` (Inno Setup) offers "Light only" or
+Packaging: `CMakeLists.txt` defines targets `CADscout` (Full), `CADscoutLight`, `make_sample`, and install
+components Light/Full that copy the needed DLLs. `installer/CADscout.iss` (Inno Setup) offers "Light only" or
 "Full" (Full also installs Light).
+
+## Name
+- The app is called **CADscout** (tagline "CAD & 3D print file viewer"); editions CADscout Light and CADscout Full. It was
+  called "STEP Viewer" until the rename; the project folder is still `light_step_reader`. Do not use the old name in
+  new text. `main.cpp` copies settings saved under the old name once (QSettings org `StepViewer`).
+- `README.md` describes the project for GitHub: keep its format list and build steps in sync when they change.
 
 ## Versions and git
 - The project is a git repository (branch `main`). `build/` and `vcpkg_installed/` are generated and ignored (`.gitignore`).

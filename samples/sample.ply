@@ -1,6 +1,6 @@
 ply
 format ascii 1.0
-comment Test cube (20 x 20 x 20) for STEP Viewer
+comment Test cube (20 x 20 x 20) for CADscout
 element vertex 8
 property float x
 property float y

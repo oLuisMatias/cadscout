@@ -277,13 +277,13 @@ SettingsDialog::SettingsDialog(const Controls& initial, int meshQuality, const P
     connect(box, &QDialogButtonBox::accepted, this, &SettingsDialog::accept);
     connect(box, &QDialogButtonBox::rejected, this, &SettingsDialog::reject);
     // Footer: app name and version on the left, Save / Cancel on the right.
-#ifndef STEPVIEWER_VERSION
-#define STEPVIEWER_VERSION "dev"
+#ifndef CADSCOUT_VERSION
+#define CADSCOUT_VERSION "dev"
 #endif
-#ifdef STEPVIEWER_LIGHT
-    auto* version = new QLabel(QString("STEP Viewer Light %1").arg(STEPVIEWER_VERSION));
+#ifdef CADSCOUT_LIGHT
+    auto* version = new QLabel(QString("CADscout Light %1").arg(CADSCOUT_VERSION));
 #else
-    auto* version = new QLabel(QString("STEP Viewer Full %1").arg(STEPVIEWER_VERSION));
+    auto* version = new QLabel(QString("CADscout Full %1").arg(CADSCOUT_VERSION));
 #endif
     version->setStyleSheet("QLabel{color:palette(placeholder-text);}");
     auto* footer = new QHBoxLayout;
@@ -392,7 +392,7 @@ void SettingsDialog::buildShortcutItems(int cat) {
     auto* table = new BindingTable;
     table->addRow("Open model", {"Ctrl", "O"}, "Anywhere", "Built-in", false);
     table->addRow("Fit to view", {"F"}, "Anywhere", "Built-in", false);
-#ifndef STEPVIEWER_LIGHT
+#ifndef CADSCOUT_LIGHT
     table->addRow("Show / hide edges", {"E"}, "Anywhere", "Built-in", false);
     table->addRow("Home view", {"H"}, "Anywhere", "Built-in", false);
     table->addRow("Show / hide assembly tree", {"T"}, "Anywhere", "Built-in", false);

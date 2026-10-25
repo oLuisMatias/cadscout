@@ -63,7 +63,7 @@ QString iconFontFamily() {
     return "Segoe MDL2 Assets";
 }
 
-#ifdef STEPVIEWER_LIGHT
+#ifdef CADSCOUT_LIGHT
 // Invisible strip along a window edge/corner that starts a native resize.
 class ResizeGrip : public QWidget {
 public:
@@ -84,11 +84,11 @@ private:
 }  // namespace
 
 MainWindow::MainWindow() {
-#ifdef STEPVIEWER_LIGHT
+#ifdef CADSCOUT_LIGHT
     setWindowFlag(Qt::FramelessWindowHint);
-    setWindowTitle("STEP Viewer Light");
+    setWindowTitle("CADscout Light");
 #else
-    setWindowTitle("STEP Viewer");
+    setWindowTitle(QString());  // empty: Qt shows just the application display name, "CADscout Full"
 #endif
     resize(1100, 750);
     setAcceptDrops(true);
@@ -172,12 +172,12 @@ MainWindow::MainWindow() {
     auto* edgesBtn = makeButton("Edges", "cube", "Show edges (E)", true);
     edgesBtn->setChecked(true);
     auto* settingsBtn = makeButton("Settings", "settings", "Settings");
-#ifdef STEPVIEWER_LIGHT
+#ifdef CADSCOUT_LIGHT
     auto* fullBtn = makeButton("Open in Full", "external-link", "Open this model in the Full edition");
 #endif
 
     connect(openBtn_, &QToolButton::clicked, this, &MainWindow::openDialog);
-#ifdef STEPVIEWER_LIGHT
+#ifdef CADSCOUT_LIGHT
     connect(fullBtn, &QToolButton::clicked, this, &MainWindow::openInFull);
 #endif
     connect(treeBtn_, &QToolButton::toggled, this, [this](bool open) {
@@ -205,7 +205,7 @@ MainWindow::MainWindow() {
         if (popup_) popup_->hide();
     });
     addShortcut(Qt::Key_F, [this] { viewport_->fitToView(); });
-#ifndef STEPVIEWER_LIGHT
+#ifndef CADSCOUT_LIGHT
     addShortcut(Qt::Key_E, [edgesBtn] { edgesBtn->toggle(); });
     addShortcut(Qt::Key_H, [this] { viewport_->goHome(); });
     addShortcut(Qt::Key_T, [this] {
@@ -222,13 +222,13 @@ MainWindow::MainWindow() {
     auto* homeRow = new QHBoxLayout(homePanel_);
     homeRow->setContentsMargins(6, 6, 6, 6);
     auto* homeBtn = new QToolButton(homePanel_);
-#ifndef STEPVIEWER_LIGHT
+#ifndef CADSCOUT_LIGHT
     homeBtn->setText("Home");
     homeBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
 #endif
     homeBtn->setIconSize(QSize(20, 20));
     setBtnIcon(homeBtn, "home");
-#ifdef STEPVIEWER_LIGHT
+#ifdef CADSCOUT_LIGHT
     homeBtn->setToolTip("Isometric view, fit to screen");
 #else
     homeBtn->setToolTip("Isometric view, fit to screen (H)");
@@ -238,7 +238,7 @@ MainWindow::MainWindow() {
     homeBtn->setStyleSheet(btnStyle);
     homeRow->addWidget(homeBtn);
     connect(homeBtn, &QToolButton::clicked, viewport_, &Viewport::goHome);
-#ifdef STEPVIEWER_LIGHT
+#ifdef CADSCOUT_LIGHT
     tree_->hide();
     treeBtn_->hide();
     fitBtn->hide();
@@ -351,7 +351,7 @@ MainWindow::MainWindow() {
     connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, applyScheme);
 
     row->addStretch(1);
-#ifdef STEPVIEWER_LIGHT
+#ifdef CADSCOUT_LIGHT
     row->setContentsMargins(8, 0, 0, 0);
     // Icon-only buttons: Open on the left; Open in Full and Settings go right, before the window controls.
     row->removeWidget(settingsBtn);
@@ -384,7 +384,7 @@ void MainWindow::refreshIcons() {
     for (auto& [b, name] : iconButtons_) b->setIcon(tablerIcon(name, fg, Qt::white, 20, devicePixelRatioF()));
     if (treeBtn_) treeBtn_->setIcon(tablerIcon(treeBtn_->isChecked() ? "arrow-bar-left" : "arrow-bar-right", fg, fg, 18,
                                                devicePixelRatioF()));
-#ifdef STEPVIEWER_LIGHT
+#ifdef CADSCOUT_LIGHT
     if (perspBtn_)
         perspBtn_->setIcon(tablerIcon(perspBtn_->isChecked() ? "perspective" : "perspective-off", fg, fg, 20,
                                       devicePixelRatioF()));
@@ -402,7 +402,7 @@ void MainWindow::showTree() {
     if (treeBtn_->isEnabled()) treeBtn_->setChecked(true);
 }
 
-#ifndef STEPVIEWER_LIGHT
+#ifndef CADSCOUT_LIGHT
 void MainWindow::updateTreeAvailability() {
     const bool single = model_ && model_->singleObject;
     if (single) {
@@ -449,7 +449,7 @@ void MainWindow::layoutOverlays() {
     cube_->move(w - cube_->width() - 10, h - cube_->height() - 10);
     cube_->raise();
     homePanel_->adjustSize();
-#ifdef STEPVIEWER_LIGHT
+#ifdef CADSCOUT_LIGHT
     homePanel_->move(w - homePanel_->width() - 10, h - homePanel_->height() - 10);
 #else
     homePanel_->move(cube_->x() - homePanel_->width() - 6, h - homePanel_->height() - 14);
@@ -464,7 +464,7 @@ void MainWindow::layoutOverlays() {
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* e) {
     if (obj == viewport_ && e->type() == QEvent::Resize) layoutOverlays();
-#ifdef STEPVIEWER_LIGHT
+#ifdef CADSCOUT_LIGHT
     if (obj == closeBtn_ && (e->type() == QEvent::Enter || e->type() == QEvent::Leave)) {
         closeHover_ = e->type() == QEvent::Enter;
         updateWindowControls();
@@ -496,7 +496,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* e) {
     return QMainWindow::eventFilter(obj, e);
 }
 
-#ifdef STEPVIEWER_LIGHT
+#ifdef CADSCOUT_LIGHT
 void MainWindow::buildWindowControls(QHBoxLayout* row, const QString& btnStyle) {
     // Same look and size as the Open / Open in Full / Settings buttons.
     auto make = [&](const QString& tip) {
@@ -611,9 +611,9 @@ void MainWindow::openSettings() {
     }
 }
 
-#ifdef STEPVIEWER_LIGHT
+#ifdef CADSCOUT_LIGHT
 void MainWindow::openInFull() {
-    const QString fullPath = QDir(QCoreApplication::applicationDirPath()).filePath("StepViewerFull.exe");
+    const QString fullPath = QDir(QCoreApplication::applicationDirPath()).filePath("CADscoutFull.exe");
     if (!QFileInfo::exists(fullPath)) {
         QMessageBox::information(this, "Full edition not installed",
                                  "Install the Full edition alongside Light to open this model in it.");
@@ -669,16 +669,16 @@ void MainWindow::onLoaded(std::shared_ptr<Model> model, const QString& path, con
         setStatus("Failed to load " + QFileInfo(path).fileName());
         hint_->setVisible(!viewport_->hasModel());
         layoutOverlays();
-        QMessageBox::warning(this, "STEP Viewer", error);
+        QMessageBox::warning(this, "CADscout", error);
         return;
     }
     model_ = model;
-#ifdef STEPVIEWER_LIGHT
-    setWindowTitle(QFileInfo(path).fileName() + " - STEP Viewer Light");
+#ifdef CADSCOUT_LIGHT
+    setWindowTitle(QFileInfo(path).fileName() + " - CADscout Light");
 #else
     buildTree();
     updateTreeAvailability();
-    setWindowTitle(QFileInfo(path).fileName() + " - STEP Viewer");
+    setWindowTitle(QFileInfo(path).fileName());  // Qt adds " - CADscout Full" (the application display name)
 #endif
     // Status bar text: CAD files show loading time, faces, triangles; Bambu/Orca projects show loading time,
     // printer, nozzle size and number of filaments (Model::extraInfo).

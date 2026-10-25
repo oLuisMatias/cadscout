@@ -1,5 +1,5 @@
 @echo off
-rem Builds both apps, stages the installer packages and (if Inno Setup is installed) builds build\StepViewerSetup.exe.
+rem Builds both apps, stages the installer packages and (if Inno Setup is installed) builds build\CADscoutSetup.exe.
 rem Run from anywhere: build_all.bat
 cd /d "%~dp0"
 
@@ -12,10 +12,10 @@ if errorlevel 1 (
 set /p VERSION=<build\version.txt
 echo Version %VERSION%
 
-echo === 1/3 Building StepViewer (Full) and StepViewerLight ===
-cmake --build build --config Release --target StepViewer StepViewerLight
+echo === 1/3 Building CADscout (Full) and CADscoutLight ===
+cmake --build build --config Release --target CADscout CADscoutLight
 if errorlevel 1 (
-    echo BUILD FAILED. If StepViewerLight.exe is open, close it and run this again.
+    echo BUILD FAILED. If CADscoutLight.exe is open, close it and run this again.
     exit /b 1
 )
 
@@ -31,9 +31,9 @@ if not defined ISCC if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "IS
 if not defined ISCC if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles%\Inno Setup 6\ISCC.exe"
 if not defined ISCC if exist "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" set "ISCC=%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
 if not defined ISCC (
-    echo Inno Setup is not installed, so StepViewerSetup.exe was NOT built. Apps and packages are up to date.
+    echo Inno Setup is not installed, so CADscoutSetup.exe was NOT built. Apps and packages are up to date.
     exit /b 0
 )
-"%ISCC%" /DAppVersion=%VERSION% installer\StepViewer.iss
+"%ISCC%" /DAppVersion=%VERSION% installer\CADscout.iss
 if errorlevel 1 exit /b 1
-echo Done: build\StepViewerSetup.exe (version %VERSION%)
+echo Done: build\CADscoutSetup.exe (version %VERSION%)
