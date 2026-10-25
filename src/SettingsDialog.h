@@ -40,6 +40,7 @@ private:
     void editBinding(int index);
     void buildMeshItems(int category, int quality);
     void buildPlateItems(int category, const PlateSettings& plate);
+    void buildAboutItems(int category);
     void refresh();
     void apply(const Controls& c);
     void accept() override;

@@ -41,6 +41,7 @@ set(CADSCOUT_SOURCES
   src/SettingsDialog.h
   src/Icons.h
   resources/icons.qrc
+  resources/legal.qrc
 )
 
 function(add_cadscout target output_name)
@@ -114,3 +115,7 @@ install(RUNTIME_DEPENDENCY_SET CADscoutFullRuntime
     ".*/[Ww][Ii][Nn][Dd][Oo][Ww][Ss]/[Ss][Yy][Ss][Ww][Oo][Ww]64/.*"
   RUNTIME DESTINATION . COMPONENT Full
 )
+
+# License and third-party notices travel with both editions (also embedded in the app, see resources/legal.qrc).
+install(FILES LICENSE THIRD-PARTY-NOTICES.txt DESTINATION . COMPONENT Light)
+install(FILES LICENSE THIRD-PARTY-NOTICES.txt DESTINATION . COMPONENT Full)

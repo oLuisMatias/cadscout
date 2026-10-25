@@ -42,6 +42,15 @@ build_all.bat
 
 The version number lives only in `vcpkg.json` (`version-string`). Test models are in `samples/`.
 
+## License
+
+CADscout is free software under the [MIT license](LICENSE).
+
+It is built with [Qt](https://www.qt.io/) (LGPL v3), [Open CASCADE Technology](https://dev.opencascade.org/)
+(LGPL 2.1 with the Open CASCADE exception) and other open-source libraries (zlib, RapidJSON, Tabler Icons, ...).
+Their licenses are listed in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt), which is also shown in the app
+(Settings > About) and shipped next to the programs.
+
 ## Status
 
-Early development (version 0.1.0). No licence has been chosen yet, so all rights are reserved for now.
+Early development (version 0.1.0).
