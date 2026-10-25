@@ -3,6 +3,8 @@
 #include <QAction>
 #include <QApplication>
 #include <QColor>
+#include <QCloseEvent>
+#include <QCollator>
 #include <QCoreApplication>
 #include <QDragEnterEvent>
 #include <QDir>
@@ -13,6 +15,7 @@
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMenu>
 #include <QMessageBox>
 #include <QMimeData>
 #include <QMouseEvent>
@@ -33,7 +36,9 @@
 
 #include "AboutDialog.h"
 #include "SettingsDialog.h"
+#include "Formats.h"
 #include "Icons.h"
+#include "ModernStyle.h"
 #include "ViewCube.h"
 #include "Viewport.h"
 
@@ -92,6 +97,10 @@ MainWindow::MainWindow() {
     setWindowTitle(QString());  // empty: Qt shows just the application display name, "CADscout Full"
 #endif
     resize(1100, 750);
+#ifdef CADSCOUT_LITE
+    restoreGeometry(QSettings().value("window/geometry").toByteArray());
+    arrowKeys_ = QSettings().value("browse/arrowKeys", true).toBool();
+#endif
     setAcceptDrops(true);
 
     auto splitter = new QSplitter(Qt::Horizontal);
@@ -209,6 +218,10 @@ MainWindow::MainWindow() {
         if (popup_) popup_->hide();
     });
     addShortcut(Qt::Key_F, [this] { viewport_->fitToView(); });
+#ifdef CADSCOUT_LITE
+    addShortcut(Qt::Key_Right, [this] { browseFolder(+1); });
+    addShortcut(Qt::Key_Left, [this] { browseFolder(-1); });
+#endif
 #ifndef CADSCOUT_LITE
     addShortcut(Qt::Key_E, [edgesBtn] { edgesBtn->toggle(); });
     addShortcut(Qt::Key_H, [this] { viewport_->goHome(); });
@@ -364,6 +377,16 @@ MainWindow::MainWindow() {
     row->addWidget(fullBtn);
     row->addWidget(aboutBtn);
     row->addWidget(settingsBtn);
+    // Small arrow right of Open: recent files.
+    recentBtn_ = makeButton(QString(), "chevron-down", "Recent files");
+    recentBtn_->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    recentBtn_->setIconSize(QSize(16, 16));
+    recentBtn_->setFixedSize(24, 46);
+    recentBtn_->setStyleSheet(btnStyle + "QToolButton{padding:0;}");
+    row->removeWidget(recentBtn_);
+    row->insertWidget(row->indexOf(openBtn_) + 1, recentBtn_);
+    row->setAlignment(recentBtn_, Qt::AlignVCenter);
+    connect(recentBtn_, &QToolButton::clicked, this, &MainWindow::showRecentMenu);
     for (QToolButton* b : {openBtn_, fullBtn, aboutBtn, settingsBtn}) {
         b->setText(QString());
         b->setToolButtonStyle(Qt::ToolButtonIconOnly);
@@ -595,7 +618,7 @@ void MainWindow::openDialog() {
     const QString dir = s.value("lastDir").toString();
     const QString path = QFileDialog::getOpenFileName(
         this, "Open 3D model", dir,
-        "3D models (*.stp *.step *.igs *.iges *.brep *.stl *.obj *.ply *.wrl *.vrml *.gltf *.glb *.3mf *.dxf);;"
+        "3D models (" + modelFilterPatterns() + ");;"
         "STEP (*.stp *.step);;IGES (*.igs *.iges);;BREP (*.brep);;STL (*.stl);;OBJ (*.obj);;PLY (*.ply);;"
         "VRML (*.wrl *.vrml);;glTF (*.gltf *.glb);;3MF (*.3mf);;DXF (*.dxf);;All files (*.*)");
     if (path.isEmpty()) return;
@@ -616,6 +639,10 @@ void MainWindow::openSettings() {
         c.save();
         viewport_->setControls(c);
         QSettings().setValue("mesh/quality", dlg.meshQuality());
+#ifdef CADSCOUT_LITE
+        arrowKeys_ = dlg.browseWithArrows();
+        QSettings().setValue("browse/arrowKeys", arrowKeys_);
+#endif
         const PlateSettings plate = dlg.plateSettings();
         plate.save();
         viewport_->setPlateSettings(plate);
@@ -623,6 +650,80 @@ void MainWindow::openSettings() {
 }
 
 #ifdef CADSCOUT_LITE
+void MainWindow::closeEvent(QCloseEvent* e) {
+    QSettings().setValue("window/geometry", saveGeometry());
+    QMainWindow::closeEvent(e);
+}
+
+void MainWindow::browseFolder(int step) {
+    if (loading_ || currentFile_.isEmpty() || !arrowKeys_) return;
+    const QFileInfo current(currentFile_);
+    QStringList filters;
+    for (const QString& e : modelExtensions()) filters << "*." + e;
+    QStringList names = current.dir().entryList(filters, QDir::Files);
+    QCollator collator;
+    collator.setNumericMode(true);
+    collator.setCaseSensitivity(Qt::CaseInsensitive);
+    std::sort(names.begin(), names.end(), collator);
+    if (names.isEmpty()) return;
+    const int count = int(names.size());
+    int target = -1;
+    for (int i = 0; i < count; ++i)
+        if (names[i].compare(current.fileName(), Qt::CaseInsensitive) == 0) target = i;
+    if (target >= 0) {
+        if (count < 2) return;
+        target = (target + step + count) % count;
+    } else {
+        // The open file is not in the list (renamed, deleted or an unlisted type): continue from where its name would
+        // sort, so no file is skipped.
+        int after = 0;  // first name that sorts after the open file
+        while (after < count && collator.compare(names[after], current.fileName()) < 0) ++after;
+        target = step > 0 ? after % count : (after - 1 + count) % count;
+    }
+    openFile(current.dir().filePath(names[target]));
+}
+
+void MainWindow::rememberRecent(const QString& path) {
+    const QString clean = QDir::toNativeSeparators(QFileInfo(path).absoluteFilePath());
+    QSettings s;
+    QStringList list = s.value("recentFiles").toStringList();
+    list.removeIf([&](const QString& f) { return f.compare(clean, Qt::CaseInsensitive) == 0; });
+    list.prepend(clean);
+    while (list.size() > 8) list.removeLast();
+    s.setValue("recentFiles", list);
+}
+
+void MainWindow::showRecentMenu() {
+    // No disk access here (a recent file on an offline network drive would freeze the window): a missing file is
+    // noticed when it is chosen (openRecent).
+    const QStringList list = QSettings().value("recentFiles").toStringList();
+    QMenu menu(this);
+    roundMenu(menu);
+    if (list.isEmpty()) menu.addAction("No recent files")->setEnabled(false);
+    for (const QString& f : list) {
+        QAction* a = menu.addAction(QFileInfo(f).fileName());
+        a->setToolTip(f);
+        connect(a, &QAction::triggered, this, [this, f] { openRecent(f); });
+    }
+    if (!list.isEmpty()) {
+        menu.addSeparator();
+        connect(menu.addAction("Clear list"), &QAction::triggered, this, [] { QSettings().remove("recentFiles"); });
+    }
+    menu.setToolTipsVisible(true);
+    menu.exec(recentBtn_->mapToGlobal(QPoint(0, recentBtn_->height())));
+}
+
+void MainWindow::openRecent(const QString& path) {
+    if (!QFileInfo::exists(path)) {
+        QStringList list = QSettings().value("recentFiles").toStringList();
+        list.removeAll(path);
+        QSettings().setValue("recentFiles", list);
+        QMessageBox::information(this, "CADscout", "This file no longer exists:\n" + path);
+        return;
+    }
+    openFile(path);
+}
+
 void MainWindow::openInFull() {
     const QString fullPath = QDir(QCoreApplication::applicationDirPath()).filePath("CADscoutFull.exe");
     if (!QFileInfo::exists(fullPath)) {
@@ -699,6 +800,20 @@ void MainWindow::onLoaded(std::shared_ptr<Model> model, const QString& path, con
         info_ = loadTime + "  ·  " + QString::fromStdString(model->extraInfo);
     else
         info_ = QString("%1  ·  %2 faces  ·  %3 triangles").arg(loadTime).arg(model->faceCount).arg(model->triangleCount);
+#ifdef CADSCOUT_LITE
+    {
+        // Model size. The unit is shown only for formats that define it (or where mm is the convention).
+        const QString ext = QFileInfo(path).suffix().toLower();
+        const bool mm = extensionIsMillimetres(ext);
+        auto number = [](float v) { return QString::number(v, 'f', v >= 100.f ? 0 : v >= 10.f ? 1 : 2); };
+        info_ += QString("  ·  %1 × %2 × %3%4")
+                     .arg(number(model->boundsMax[0] - model->boundsMin[0]))
+                     .arg(number(model->boundsMax[1] - model->boundsMin[1]))
+                     .arg(number(model->boundsMax[2] - model->boundsMin[2]))
+                     .arg(mm ? " mm" : "");
+        rememberRecent(path);
+    }
+#endif
     viewport_->setModel(model);
     setStatus(info_);
 

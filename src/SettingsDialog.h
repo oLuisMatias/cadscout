@@ -20,6 +20,7 @@ public:
     SettingsDialog(const Controls& initial, int meshQuality, const PlateSettings& plate, QWidget* parent = nullptr);
     Controls controls() const;
     int meshQuality() const;  // 0 fast, 1 balanced, 2 high
+    bool browseWithArrows() const;  // Lite only
     PlateSettings plateSettings() const;
 
 private:
@@ -35,6 +36,7 @@ private:
     void addWide(int category, const QString& description, QWidget* control, const QString& keywords,
                  QTableWidget* table = nullptr);  // full-width item without a "Category: Title" line
     void buildSupportItems(int category);
+    void buildGeneralItems(int category);  // Lite only
     void buildControlsItems(int category);
     void buildShortcutItems(int category);
     void refreshControlsTable();
@@ -57,6 +59,7 @@ private:
     QComboBox* button_[3];
     QComboBox* modifier_[3];
     QCheckBox* invert_;
+    QCheckBox* arrows_ = nullptr;  // Lite: Left/Right arrow keys open the previous/next file
     QComboBox* quality_;
     QComboBox* plateMode_;
     QDoubleSpinBox* plateWidth_;

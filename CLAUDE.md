@@ -162,3 +162,15 @@ the MSIX packages are made from.
   (QR codes) are embedded through `resources/logo.qrc`; Qt here cannot read PNG/WebP, so bitmaps there are BMP. `app-icon-lite.png` / `app-icon-full.png` (cropped square, transparent) are the sources of each edition's program icon (`resources/app-lite.ico`, `resources/app-full.ico`, sizes 16-256, built by hand with Pillow; `resources/app-lite.rc` / `app-full.rc` put them into the exes, set per target in `CMakeLists.txt`) and later of the Store tile images. If a PNG is replaced, regenerate its .ico.
 - `main.cpp` checks at start (`openGlAvailable`) that an OpenGL 3.3 context can be created; if not it shows a plain message and exits
   instead of failing silently. The message dialog itself was not seen in a test (no PC without OpenGL 3.3 available).
+- Lite-only extras (`#ifdef CADSCOUT_LITE`, `MainWindow.cpp`): Left/Right arrow keys open the previous/next model file of the current
+  file's folder (`browseFolder`, natural name order, wraps around; QSettings `browse/arrowKeys`, default on, switch in Settings >
+  General); a small arrow right of Open lists the last 8 files (`recentFiles`, `showRecentMenu`, deleted files are dropped);
+  the window size/position is remembered (`window/geometry`, saved in `closeEvent`); the status bar ends with the model size
+  "W x D x H" (unit "mm" only for stp/step/igs/iges/brep/3mf/stl). Test registry values live under
+  `HKCU:\Software\CADscout\CADscout Lite` (QSettings turns "a/b" into a sub-key); delete test values afterwards.
+- Modern look of lists/menus/number boxes/message boxes: `src/ModernStyle.h` (app-wide stylesheet `modernStyleSheet()` set in
+  `main.cpp`; `ModernComboBox` and `ModernDoubleSpinBox` draw thin chevron arrows themselves, because Qt stylesheet arrow images
+  need an SVG plugin that is not shipped; `roundMenu()` for popup menus). Use these classes for any new dropdown or number box.
+- `src/Formats.h` lists the model file extensions used by the UI (Open dialog, arrow-key browsing, mm units): when adding a format,
+  edit it there and in `formatOf` (`StepLoader.cpp`). Buttons and scroll bars share one look in `modernStyleSheet()`
+  (`ModernStyle.h`); dialogs only add small overrides (padding).

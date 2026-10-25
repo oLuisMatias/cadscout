@@ -31,17 +31,7 @@ AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent) {
     setStyleSheet(
         "QDialog{background:palette(window);}"
         "QLabel{font-size:13px;}"
-        "QPushButton{border:1px solid palette(mid);border-radius:6px;padding:7px 22px;"
-        "background:transparent;color:palette(window-text);}"
-        "QPushButton:hover{background:palette(midlight);}"
-        "QPushButton:pressed{background:palette(mid);}"
-        "QPushButton:default{background:palette(highlight);color:palette(highlighted-text);"
-        "border-color:palette(highlight);}"
-        "QScrollBar:vertical{background:transparent;width:10px;margin:0;}"
-        "QScrollBar::handle:vertical{background:palette(mid);border-radius:5px;min-height:30px;}"
-        "QScrollBar::handle:vertical:hover{background:palette(dark);}"
-        "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
-        "QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{background:transparent;}");
+        "QPushButton{padding:7px 22px;}");  // buttons and scroll bars: app-wide look in ModernStyle.h
 
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(26, 22, 26, 18);

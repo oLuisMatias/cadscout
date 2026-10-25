@@ -6,6 +6,7 @@
 #include <QSurfaceFormat>
 
 #include "MainWindow.h"
+#include "ModernStyle.h"
 
 // True when this PC can give us an OpenGL 3.3 context, which the 3D view needs (old graphics cards and some
 // virtual machines cannot).
@@ -30,6 +31,7 @@ int main(int argc, char** argv) {
     QSurfaceFormat::setDefaultFormat(fmt);
 
     QApplication app(argc, argv);
+    app.setStyleSheet(modernStyleSheet());
     QApplication::setOrganizationName("CADscout");
 #ifdef CADSCOUT_LITE
     QApplication::setApplicationName("CADscout Lite");

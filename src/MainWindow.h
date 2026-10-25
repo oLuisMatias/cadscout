@@ -33,6 +33,7 @@ protected:
 #ifdef CADSCOUT_LITE
     void resizeEvent(QResizeEvent* e) override;
     void changeEvent(QEvent* e) override;
+    void closeEvent(QCloseEvent* e) override;  // remembers the window size and position
 #endif
 
 private slots:
@@ -49,6 +50,10 @@ private:
     void updateWindowControls();
     void layoutResizeGrips();
     void toggleMaximized();
+    void browseFolder(int step);  // opens the next (+1) or previous (-1) model file in the current file's folder
+    void rememberRecent(const QString& path);
+    void showRecentMenu();
+    void openRecent(const QString& path);
 #endif
     void layoutOverlays();
     void setStatus(const QString& text);  // text of the status bar at the bottom of the window
@@ -86,6 +91,8 @@ private:
     QToolButton* maxBtn_ = nullptr;
     QToolButton* closeBtn_ = nullptr;
     QToolButton* perspBtn_ = nullptr;
+    QToolButton* recentBtn_ = nullptr;  // small arrow next to Open: list of recent files
+    bool arrowKeys_ = true;             // Left/Right open the previous/next file (Settings > General)
     std::vector<QWidget*> grips_;
     bool closeHover_ = false;
     bool dragPending_ = false;

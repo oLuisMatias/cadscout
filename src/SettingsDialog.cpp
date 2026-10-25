@@ -20,6 +20,7 @@
 #include <functional>
 
 #include "Icons.h"
+#include "ModernStyle.h"
 #include "SupportButtons.h"
 
 namespace {
@@ -203,26 +204,7 @@ SettingsDialog::SettingsDialog(const Controls& initial, int meshQuality, const P
         "QLineEdit{border:1px solid palette(mid);border-radius:6px;padding:7px 10px;font-size:13px;"
         "background:palette(base);}"
         "QLineEdit:focus{border-color:palette(highlight);}"
-        "QPushButton{border:1px solid palette(mid);border-radius:6px;padding:7px 14px;"
-        "background:transparent;color:palette(window-text);}"
-        "QPushButton:hover{background:palette(midlight);}"
-        "QPushButton:pressed{background:palette(mid);}"
-        "QPushButton:default{background:palette(highlight);color:palette(highlighted-text);"
-        "border-color:palette(highlight);}"
-        "QComboBox{min-height:28px;border:1px solid palette(mid);border-radius:6px;padding:0 10px;"
-        "background:palette(base);}"
-        "QComboBox:hover{border-color:palette(highlight);}"
-        "QDoubleSpinBox{min-height:28px;border:1px solid palette(mid);border-radius:6px;padding:0 8px;"
-        "background:palette(base);}"
-        "QDoubleSpinBox:focus{border-color:palette(highlight);}"
-        "QDoubleSpinBox:disabled{color:palette(placeholder-text);}"
-        "QComboBox QAbstractItemView{border:1px solid palette(mid);background:palette(base);outline:0;"
-        "selection-background-color:palette(highlight);selection-color:palette(highlighted-text);}"
-        "QScrollBar:vertical{background:transparent;width:10px;margin:0;}"
-        "QScrollBar::handle:vertical{background:palette(mid);border-radius:5px;min-height:30px;}"
-        "QScrollBar::handle:vertical:hover{background:palette(dark);}"
-        "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
-        "QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{background:transparent;}"
+        "QPushButton{padding:7px 14px;}"  // buttons and scroll bars: app-wide look in ModernStyle.h
         "QListWidget{border:none;background:transparent;outline:0;font-size:13px;}"
         "QListWidget::item{padding:5px 10px;border-left:2px solid transparent;}"
         "QListWidget::item:hover{background:palette(midlight);}"
@@ -261,11 +243,17 @@ SettingsDialog::SettingsDialog(const Controls& initial, int meshQuality, const P
     root->addLayout(body, 1);
 
     const int supportCat = addCategory("Support");  // first category = the page Settings opens on
+#ifdef CADSCOUT_LITE
+    const int generalCat = addCategory("General");
+#endif
     const int controlsCat = addCategory("Controls");
     const int shortcutsCat = addCategory("Shortcuts");
     const int meshCat = addCategory("Mesh quality");
     const int plateCat = addCategory("Print plate");
     buildSupportItems(supportCat);
+#ifdef CADSCOUT_LITE
+    buildGeneralItems(generalCat);
+#endif
     buildControlsItems(controlsCat);
     buildShortcutItems(shortcutsCat);
     buildMeshItems(meshCat, meshQuality);
@@ -360,6 +348,12 @@ void SettingsDialog::buildSupportItems(int cat) {
             new SupportButtons, "support donate donation coffee buy me a coffee ko-fi kofi tip thanks free");
 }
 
+void SettingsDialog::buildGeneralItems(int cat) {
+    arrows_ = new FlatCheckBox("Left / Right arrow keys open the previous / next model in the same folder");
+    arrows_->setChecked(QSettings().value("browse/arrowKeys", true).toBool());
+    addItem(cat, "Browse files", "Turn this off if you do not want the arrow keys to change the model.", arrows_);
+}
+
 void SettingsDialog::buildControlsItems(int cat) {
     auto* presets = new QWidget;
     auto* row = new QHBoxLayout(presets);
@@ -375,10 +369,10 @@ void SettingsDialog::buildControlsItems(int cat) {
 
     // The bindings are kept in these (hidden) boxes; the table shows them and the pencil edits them.
     for (int i = 0; i < 3; ++i) {
-        button_[i] = new QComboBox(this);
+        button_[i] = new ModernComboBox(this);
         button_[i]->addItems({"Left", "Middle", "Right"});
         button_[i]->hide();
-        modifier_[i] = new QComboBox(this);
+        modifier_[i] = new ModernComboBox(this);
         modifier_[i]->addItems({"None", "Shift", "Ctrl", "Alt"});
         modifier_[i]->hide();
     }
@@ -403,6 +397,10 @@ void SettingsDialog::buildShortcutItems(int cat) {
     auto* table = new BindingTable;
     table->addRow("Open model", {"Ctrl", "O"}, "Anywhere", "Built-in", false);
     table->addRow("Fit to view", {"F"}, "Anywhere", "Built-in", false);
+#ifdef CADSCOUT_LITE
+    table->addRow("Next file in folder", {"Right"}, "Model loaded", "Built-in", false);
+    table->addRow("Previous file in folder", {"Left"}, "Model loaded", "Built-in", false);
+#endif
 #ifndef CADSCOUT_LITE
     table->addRow("Show / hide edges", {"E"}, "Anywhere", "Built-in", false);
     table->addRow("Home view", {"H"}, "Anywhere", "Built-in", false);
@@ -443,11 +441,11 @@ void SettingsDialog::editBinding(int i) {
     auto* form = new QFormLayout;
     form->setHorizontalSpacing(16);
     form->setVerticalSpacing(10);
-    auto* b = new QComboBox;
+    auto* b = new ModernComboBox;
     b->addItems({"Left", "Middle", "Right"});
     b->setCurrentIndex(button_[i]->currentIndex());
     b->setFixedWidth(200);
-    auto* m = new QComboBox;
+    auto* m = new ModernComboBox;
     m->addItems({"None", "Shift", "Ctrl", "Alt"});
     m->setCurrentIndex(modifier_[i]->currentIndex());
     m->setFixedWidth(200);
@@ -466,7 +464,7 @@ void SettingsDialog::editBinding(int i) {
 }
 
 void SettingsDialog::buildMeshItems(int cat, int quality) {
-    quality_ = new QComboBox;
+    quality_ = new ModernComboBox;
     quality_->addItems({"Fast", "Balanced", "High quality"});
     quality_->setFixedWidth(220);
     quality_->setCurrentIndex(std::clamp(quality, 0, 2));
@@ -478,7 +476,7 @@ void SettingsDialog::buildMeshItems(int cat, int quality) {
 }
 
 void SettingsDialog::buildPlateItems(int cat, const PlateSettings& plate) {
-    plateMode_ = new QComboBox;
+    plateMode_ = new ModernComboBox;
     plateMode_->addItems({"Automatic (from the file)", "Custom size", "Hidden"});
     plateMode_->setFixedWidth(220);
     plateMode_->setCurrentIndex(int(plate.mode));
@@ -493,7 +491,7 @@ void SettingsDialog::buildPlateItems(int cat, const PlateSettings& plate) {
     row->setContentsMargins(0, 0, 0, 0);
     row->setSpacing(8);
     auto makeSpin = [](double value) {
-        auto* spin = new QDoubleSpinBox;
+        auto* spin = new ModernDoubleSpinBox;
         spin->setRange(50.0, 2000.0);
         spin->setDecimals(0);
         spin->setSuffix(" mm");
@@ -543,6 +541,8 @@ void SettingsDialog::refresh() {
     heading_->setText(words.isEmpty() ? categoryNames_.value(cat) : QString("Search results"));
     empty_->setVisible(shown == 0);
 }
+
+bool SettingsDialog::browseWithArrows() const { return arrows_ ? arrows_->isChecked() : true; }
 
 int SettingsDialog::meshQuality() const { return quality_->currentIndex(); }
 
