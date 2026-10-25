@@ -197,3 +197,7 @@ the MSIX packages are made from.
   sizes; opening a file while another loads says so in the status bar; the right-click entry shows only for a single selected
   file. NOT done (need a decision or Full): "Open in Full" cannot find a separately installed Full package (needs Full's package
   identity or a protocol link); Windows 10 is untested for the right-click entry (manifest MinVersion 10.0.17763.0).
+- Plan (decided with the user): publish Lite 0.2.0 now with "Open in Full" saying Full is coming soon. When Full is released in the
+  Store, update Lite so the button works (needs Full's package identity from Partner Center, or a protocol link declared in Full's
+  manifest; Lite and Full are separate packages, so Lite cannot start Full by file path), then publish a new Lite version
+  (bump `version-string` in `vcpkg.json`, e.g. 0.3.0). Also decide then about the Windows 10 minimum version.

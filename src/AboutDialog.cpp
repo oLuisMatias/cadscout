@@ -52,6 +52,13 @@ AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent) {
     license->setWordWrap(true);
     root->addWidget(license);
 
+    auto* early = new QLabel(
+        "<b>Early version.</b> CADscout has not been tested with many files yet. If a file does not open correctly, "
+        "or you have an idea, please leave a review in the Microsoft Store.");
+    early->setWordWrap(true);
+    root->addSpacing(4);
+    root->addWidget(early);
+
     auto* support = new QLabel("Support CADscout (it is free; nothing is unlocked in return):");
     support->setWordWrap(true);
     root->addSpacing(4);
