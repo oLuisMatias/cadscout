@@ -60,6 +60,10 @@ components Light/Full that copy the needed DLLs. `installer/CADscout.iss` (Inno 
 - GitHub: private repository (remote `origin`). The GitHub CLI is installed
   (`C:\Program Files\GitHub CLI\gh.exe`) and logged in. **Push only when the user asks**; push tags too
   (`git push origin --tags`) after a release tag.
+- **No personal details in the repository**: commits use the anonymous identity `CADscout <noreply@cadscout.invalid>`
+  (set locally in this repo on purpose; do not change it) and sample files/commit messages/docs must not contain the
+  user's name, email, Windows user name or local paths. `tools/make_sample.cpp` already writes "CADscout" as the IGES
+  author. The repository address contains the GitHub account name; that cannot be avoided.
 - **Commit only when the user asks.** Use short plain messages and end them with the attribution line from the session
   instructions. Never push anywhere unless asked.
 - **The version number lives only in `vcpkg.json` (`version-string`, x.y.z).** CMake reads it from there: the apps show it in

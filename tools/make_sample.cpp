@@ -14,6 +14,9 @@
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakeSphere.hxx>
 #include <IFSelect_ReturnStatus.hxx>
+#include <IGESData_GlobalSection.hxx>
+#include <IGESData_IGESModel.hxx>
+#include <TCollection_HAsciiString.hxx>
 #include <Quantity_Color.hxx>
 #include <STEPCAFControl_Writer.hxx>
 #include <TDocStd_Document.hxx>
@@ -80,6 +83,13 @@ int main(int argc, char** argv) {
     addFlat(ball, "Green ball", 0.2, 0.8, 0.3, 30, 35);
     IGESCAFControl_Writer iw;
     iw.Transfer(flatDoc);
+    {
+        // OpenCASCADE writes the Windows user name as the IGES author; keep personal details out of the sample files.
+        IGESData_GlobalSection header = iw.Model()->GlobalSection();
+        header.SetAuthorName(new TCollection_HAsciiString("CADscout"));
+        header.SetCompanyName(new TCollection_HAsciiString("CADscout"));
+        iw.Model()->SetGlobalSection(header);
+    }
     if (iw.Write((stem + ".igs").c_str()) != IFSelect_RetDone) { std::cerr << "igs write failed\n"; return 1; }
 
     BRep_Builder bb;
