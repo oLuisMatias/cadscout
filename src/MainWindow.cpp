@@ -615,8 +615,8 @@ void MainWindow::openSettings() {
 void MainWindow::openInFull() {
     const QString fullPath = QDir(QCoreApplication::applicationDirPath()).filePath("CADscoutFull.exe");
     if (!QFileInfo::exists(fullPath)) {
-        QMessageBox::information(this, "Full edition not installed",
-                                 "Install the Full edition alongside Light to open this model in it.");
+        QMessageBox::information(this, "CADscout Full is not installed",
+                                 "Install the full version (CADscout Full) to open this model in it.");
         return;
     }
 

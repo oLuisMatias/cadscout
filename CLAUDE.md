@@ -63,8 +63,11 @@ components Light/Full that copy the needed DLLs. `installer/CADscout.iss` (Inno 
 - Qt is used under the LGPL v3 and must stay separate, replaceable DLLs (never link it statically). Same for OpenCASCADE
   (LGPL 2.1 + OCCT exception: keep the "uses Open CASCADE Technology" notice).
 - Plan (decided with the user): 1) public GitHub repo + direct download (Inno Setup installer, GitHub Releases);
-  2) later the Microsoft Store as a single **MSIX** package containing both apps (Light and Full), built with the Windows SDK
-  (`makeappx`), not MSI. Store needs: app icon + logo sizes (the exes have no icon yet), `AppxManifest.xml` (4-part version,
+  2) later the Microsoft Store as **two MSIX packages = two Store listings** (decided with the user): **CADscout Light**
+  (only `CADscoutLight.exe`) and **CADscout Full** (`CADscoutFull.exe` + `CADscoutLight.exe`, so Full users get both programs
+  after installing). Built from `build\package\Light` and `build\package\Full` with the Windows SDK (`makeappx`), not MSI.
+  Light's "Open in Full" button stays; when `CADscoutFull.exe` is not in its folder it says "Install the full version
+  (CADscout Full) to open this model in it." (already implemented, no cross-package launch needed). Store needs: app icon + logo sizes (the exes have no icon yet), `AppxManifest.xml` (4-part version,
   `runFullTrust`, dependency on `Microsoft.VCLibs.140.00.UWPDesktop` because the C++ runtime is not bundled), file
   associations (the app already opens a path given on the command line), privacy/age rating, a Partner Center account (the
   publisher name is public; new individual accounts need ID verification), reserve the name "CADscout". Optional: a friendly
