@@ -57,6 +57,9 @@ components Light/Full that copy the needed DLLs. `installer/CADscout.iss` (Inno 
 
 ## Versions and git
 - The project is a git repository (branch `main`). `build/` and `vcpkg_installed/` are generated and ignored (`.gitignore`).
+- GitHub: private repository (remote `origin`). The GitHub CLI is installed
+  (`C:\Program Files\GitHub CLI\gh.exe`) and logged in. **Push only when the user asks**; push tags too
+  (`git push origin --tags`) after a release tag.
 - **Commit only when the user asks.** Use short plain messages and end them with the attribution line from the session
   instructions. Never push anywhere unless asked.
 - **The version number lives only in `vcpkg.json` (`version-string`, x.y.z).** CMake reads it from there: the apps show it in
