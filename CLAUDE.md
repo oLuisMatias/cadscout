@@ -1,0 +1,116 @@
+# STEP Viewer (Qt6 + OpenCASCADE, Windows)
+
+## Rule: rebuild after every code change
+After any prompt in which you change source, CMake or resource files, run `build_all.bat` in cmd
+(`cmd /c build_all.bat` from the project root) before finishing, and report whether it succeeded.
+It builds Full and Light, stages `build\package\*`, and builds `build\StepViewerSetup.exe` when Inno Setup 6 is installed
+(it skips that step with a message if not). If the Light exe is locked because the app is open, tell the user to close it.
+
+## Rule: which app is being changed
+The user starts change requests with **[Light]**, **[Full]** or **[Both]**.
+- **[Light]**: change only the Light app. Put the code inside `#ifdef STEPVIEWER_LIGHT` (or a Light-only file/target)
+  so Full is not affected.
+- **[Full]**: change only the Full app. Put the code inside `#ifndef STEPVIEWER_LIGHT` (or a Full-only target) so
+  Light is not affected. Libraries needed only by Full should be linked only to the `StepViewer` target.
+- **[Both]**: shared code, no `#ifdef` needed.
+- If a request changes app behaviour or looks and has no tag, **ask which app (Light, Full or Both) before editing**.
+  Questions, explanations and build/installer-only tasks don't need a tag.
+- When finishing, say which app(s) the change affects.
+
+## About the user
+Not a software engineer: explain results in plain language and avoid jargon.
+
+## Project summary
+A Windows desktop app for viewing 3D CAD models (STEP and other formats). Written in C++17 with Qt 6 (window/UI)
+and OpenCASCADE 8 (reads CAD files and turns surfaces into triangles). Libraries come from vcpkg (`vcpkg.json`,
+`vcpkg_installed/`). The same source builds two apps:
+- **StepViewerFull.exe** – normal window with toolbar, assembly tree (T), edges toggle (E), home view (H), fit (F),
+  settings.
+- **StepViewerLight.exe** (built with `STEPVIEWER_LIGHT`) – minimal frameless window with its own min/max/close
+  buttons and resize grips, icon-only toolbar, no tree, perspective toggle, and an **Open in Full** button that
+  launches `StepViewerFull.exe` from the same folder.
+
+How it works:
+- `main.cpp` – sets up OpenGL 3.3, reads command-line options: a file path, `--screenshot <file>`, `--tree`,
+  `--click x y` (the last three are for testing).
+- `MainWindow` – toolbar, tree, status text, drag-and-drop, loads files on a background thread.
+- `StepLoader` – `loadModelFile` reads the file (format picked by extension, PLY has a hand-written reader), keeps
+  colours and the assembly tree, meshes surfaces at Fast/Balanced/High quality, and returns a `Model`
+  (triangle batches per colour, parts, tree nodes, edge lines, bounds).
+- `Viewport` – OpenGL drawing, camera (orbit/pan/zoom, perspective/orthographic), click-to-select a part
+  (picking via an off-screen buffer), gradient background, light/dark theme.
+- `ViewCube` – clickable orientation cube in the corner (Z is up).
+- `Controls.h` – mouse bindings ("CAD" default: middle = orbit, shift+middle = pan, right = zoom; or "classic"),
+  saved with QSettings.
+- `SettingsDialog` – searchable settings for mouse controls and mesh quality.
+- `Icons.h` + `resources/icons/` – Tabler SVG icons (MIT), recoloured for the theme.
+
+Packaging: `CMakeLists.txt` defines targets `StepViewer` (Full), `StepViewerLight`, `make_sample`, and install
+components Light/Full that copy the needed DLLs. `installer/StepViewer.iss` (Inno Setup) offers "Light only" or
+"Full" (Full also installs Light).
+
+## Versions and git
+- The project is a git repository (branch `main`). `build/` and `vcpkg_installed/` are generated and ignored (`.gitignore`).
+- **Commit only when the user asks.** Use short plain messages and end them with the attribution line from the session
+  instructions. Never push anywhere unless asked.
+- **The version number lives only in `vcpkg.json` (`version-string`, x.y.z).** CMake reads it from there: the apps show it in
+  the Settings window footer, `build\version.txt` gets it, and `build_all.bat` passes it to the installer
+  (`/DAppVersion=`). Do not type the number anywhere else.
+- To release: 1) change `version-string` (new feature = middle number, bug fix = last number, big milestone = first number),
+  2) run `build_all.bat`, 3) commit, 4) tag the commit `vX.Y.Z` (`git tag -a vX.Y.Z -m "..."`). A published installer can then
+  always be rebuilt from its tag; a fix to an old version is made from that tag.
+- Current version: see `vcpkg.json`.
+
+## Notes
+- Source in `src/`, helper tool in `tools/make_sample.cpp` (writes sample.stp/.igs/.brep/.stl).
+- All test models live in `samples/` (one per format: stp, igs, brep, stl, obj+mtl, ply, wrl). Keep new sample
+  files there. To regenerate: `build\Release\make_sample.exe samples\sample.stp`.
+- Qt in this build has no PNG support: screenshots from `--screenshot` are BMP.
+- Formats loaded: STEP, IGES, BREP, STL, OBJ, PLY, VRML, glTF/GLB, 3MF, DXF (see `loadModelFile` in
+  `src/StepLoader.cpp`). glTF uses OpenCASCADE's reader (needs the `rapidjson` feature in `vcpkg.json` and `TKDEGLTF`).
+  3MF and DXF (ASCII only; 3D faces/meshes plus 2D lines, circles and arcs; no blocks/INSERT, splines or ACIS solids)
+  are read by our own code in `src/ExtraFormats.cpp`.
+- Test files: `samples/sample.glb`, `sample.3mf` and `sample.dxf` were made by a throwaway Python script.
+- Multi-part samples: stp, igs (3 parts), obj and wrl (house of 3 parts), glb (2), 3mf (2), dxf (3: two colours + lines).
+  STL, PLY and BREP hold one object only.
+- One-object formats (`isSingleObjectFormat` in `StepLoader.cpp`: STL, PLY, BREP): the Full app hides the assembly tree
+  and disables its button with a tooltip (`MainWindow::updateTreeAvailability`). Light has no tree.
+- VRML: the OpenCASCADE reader must get `SetFileLengthUnit(1.0)`; unset it is -1 and mirrors the model. VRML colours and
+  per-shape parts only work for top-level `Shape` nodes (not shapes nested inside `Transform`).
+- Bambu Studio / Orca Slicer 3MF (`read3mf` in `src/ExtraFormats.cpp`): detected by `Metadata/model_settings.config`.
+  Each object lives in `3D/Objects/object_N.model` (`p:path` components); a part's `id` equals its component's `objectid`;
+  `extruder` = filament number (1-based) into `project_settings.config` `filament_colour`; plates come from `<plate>`
+  blocks (`plater_id`, `model_instance`); per-triangle `paint_color` is decoded (split triangles use the dominant filament);
+  print time/weight only exist in sliced files (`slice_info.config` `<plate>` with `prediction`/`weight`). Tree = plate ->
+  object -> part; summary goes to `Model::extraInfo` (status bar). Verified on a real unsliced Bambu Studio 2.8 project
+  (2 plates, 8 objects, 2.8 M triangles loads in ~2 s, ~660 MB peak); the sliced-file keys, `paint_color` and
+  `firstid/lastid` paths are only tested on `samples/sample_bambu_synthetic.3mf` (made by a script, not by Bambu).
+  3MF object files are parsed with a small custom XML tokenizer (the files are huge); keep it fast.
+- Settings window: "Controls" and "Shortcuts" use `BindingTable` (in `SettingsDialog.cpp`), a code-editor-style table
+  (pencil | Command | Keybinding as key caps | When | Source). Controls rows Orbit/Pan/Zoom are editable (pencil opens
+  `editBinding`; the values live in hidden combo boxes so `controls()`/`apply()` are unchanged). Shortcuts is a fixed,
+  read-only list: update it by hand when a shortcut is added in `MainWindow.cpp` (E/H/T are Full only). The top search
+  box also filters table rows.
+- Print plate (virtual bed under the model, `Viewport::rebuildPlates` / `drawPlates`, setting in `PlateSettings.h`,
+  Settings page "Print plate": Automatic / Custom size / Hidden). Automatic: Bambu/Orca 3MF carry the bed in
+  `project_settings.config` `printable_area` (polygon, mm); plate i sits at `(col*W*1.2, -row*D*1.2)` with
+  `cols = round-up of sqrt(n)` (grid and 1.2 gap confirmed in Orca source `PartPlateList::compute_origin`; the column rule
+  is from memory, only checked for 2 plates). Other formats have no bed information, so Automatic shows nothing; Custom
+  puts one W x D plate centred under the model's footprint at its lowest point. Plates are translucent, never write
+  depth and are not part of picking. Settings are in QSettings group `plate` (`mode` 0/1/2, `width`, `depth`).
+- Click popups, Bambu/Orca files only (both apps): clicking a file print plate shows a card with the plate name and print
+  time ("not available" when the file is not sliced); clicking a part shows its object name and the filament it is
+  printed with (swatch, number, type, colour). Plate hit-test is a ray/plane test in `Viewport::plateAt` (only when no
+  part is under the cursor); parts carry `Part::object` / `Part::filaments`, plates `PlateShape::name/printSeconds`.
+  Painted multi-colour parts are split per filament, so each piece reports one filament. The card (`popup_` in
+  `MainWindow`) closes on the next mouse press, Esc or opening a file. Test it with `--click x y` (view coordinates).
+- Status bar: a real bar along the bottom of the window (`status_` in `MainWindow`, set with `setStatus`), in both apps.
+  It shows loading/failed messages, the selected part name and model info; long text is shortened with "..." and
+  the full text is in the tooltip. Model info for CAD files: "Loaded in X s · N faces · M triangles"; for Bambu/Orca
+  projects: "Loaded in X s · printer · nozzle · N plates · N filaments" (`Model::extraInfo`, filaments = used by the objects).
+  Plate print time/weight (sliced files) is only shown in the tree plate names.
+- SolidWorks (.sldprt/.sldasm) is intentionally NOT supported: the format is closed, OpenCASCADE has no reader and
+  FreeCAD (portable or not) has no SolidWorks importer. `formatOf` shows a message asking the user to export STEP.
+  Supporting it for real would need a commercial toolkit (CAD Exchanger SDK, HOOPS Exchange, ...) run as a helper
+  process on the loader thread, converting to a temporary STEP file before `loadModelFile` continues.
+- glTF/OBJ/VRML files that are Y-up are not rotated to Z-up (only glTF is converted).

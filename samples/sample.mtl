@@ -1,0 +1,9 @@
+# Material (colour) file used by sample.obj
+newmtl Orange
+Kd 1.0 0.55 0.1
+
+newmtl Green
+Kd 0.2 0.7 0.3
+
+newmtl Blue
+Kd 0.2 0.4 0.9

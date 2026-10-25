@@ -1,0 +1,4 @@
+# Let git decide line endings for text files, but Windows scripts must always keep Windows line endings.
+* text=auto
+*.bat text eol=crlf
+*.iss text eol=crlf

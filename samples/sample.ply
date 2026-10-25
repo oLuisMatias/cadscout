@@ -1,0 +1,24 @@
+ply
+format ascii 1.0
+comment Test cube (20 x 20 x 20) for STEP Viewer
+element vertex 8
+property float x
+property float y
+property float z
+element face 6
+property list uchar int vertex_indices
+end_header
+0 0 0
+20 0 0
+20 20 0
+0 20 0
+0 0 20
+20 0 20
+20 20 20
+0 20 20
+4 0 3 2 1
+4 4 5 6 7
+4 0 1 5 4
+4 2 3 7 6
+4 0 4 7 3
+4 1 2 6 5

@@ -1,0 +1,9 @@
+{
+  "name": "step-viewer",
+  "version-string": "0.1.0",
+  "dependencies": [
+    { "name": "opencascade", "default-features": false, "features": ["rapidjson"] },
+    "qtsvg",
+    { "name": "qtbase", "default-features": false, "features": ["opengl", "widgets", "gui"] }
+  ]
+}

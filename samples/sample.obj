@@ -1,0 +1,49 @@
+# Small house made of 3 separate objects (Base, Tower, Roof) for STEP Viewer. Colours come from sample.mtl.
+mtllib sample.mtl
+
+o Base
+v 0 0 0
+v 40 0 0
+v 40 40 0
+v 0 40 0
+v 0 0 10
+v 40 0 10
+v 40 40 10
+v 0 40 10
+usemtl Orange
+f 1 4 3 2
+f 5 6 7 8
+f 1 2 6 5
+f 3 4 8 7
+f 1 5 8 4
+f 2 3 7 6
+
+o Tower
+v 15 15 10
+v 25 15 10
+v 25 25 10
+v 15 25 10
+v 15 15 40
+v 25 15 40
+v 25 25 40
+v 15 25 40
+usemtl Green
+f 9 12 11 10
+f 13 14 15 16
+f 9 10 14 13
+f 11 12 16 15
+f 9 13 16 12
+f 10 11 15 14
+
+o Roof
+v 12 12 40
+v 28 12 40
+v 28 28 40
+v 12 28 40
+v 20 20 52
+usemtl Blue
+f 17 20 19 18
+f 17 18 21
+f 18 19 21
+f 19 20 21
+f 20 17 21
