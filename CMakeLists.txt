@@ -39,6 +39,11 @@ set(CADSCOUT_SOURCES
   src/PlateSettings.h
   src/SettingsDialog.cpp
   src/SettingsDialog.h
+  src/AboutDialog.cpp
+  src/AboutDialog.h
+  src/Support.h
+  src/SupportButtons.cpp
+  src/SupportButtons.h
   src/Icons.h
   resources/icons.qrc
   resources/legal.qrc

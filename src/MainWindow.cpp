@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <stdexcept>
 
+#include "AboutDialog.h"
 #include "SettingsDialog.h"
 #include "Icons.h"
 #include "ViewCube.h"
@@ -172,6 +173,7 @@ MainWindow::MainWindow() {
     auto* edgesBtn = makeButton("Edges", "cube", "Show edges (E)", true);
     edgesBtn->setChecked(true);
     auto* settingsBtn = makeButton("Settings", "settings", "Settings");
+    auto* aboutBtn = makeButton("About", "info-circle", "About CADscout (F1)");
 #ifdef CADSCOUT_LIGHT
     auto* fullBtn = makeButton("Open in Full", "external-link", "Open this model in the Full edition");
 #endif
@@ -192,6 +194,7 @@ MainWindow::MainWindow() {
     connect(fitBtn, &QToolButton::clicked, viewport_, &Viewport::fitToView);
     connect(edgesBtn, &QToolButton::toggled, viewport_, &Viewport::setEdgesVisible);
     connect(settingsBtn, &QToolButton::clicked, this, &MainWindow::openSettings);
+    connect(aboutBtn, &QToolButton::clicked, this, &MainWindow::openAbout);
 
     // Keyboard shortcuts
     auto addShortcut = [this](const QKeySequence& k, auto slot) {
@@ -201,6 +204,7 @@ MainWindow::MainWindow() {
         addAction(a);
     };
     addShortcut(QKeySequence::Open, [this] { openDialog(); });
+    addShortcut(Qt::Key_F1, [this] { openAbout(); });
     addShortcut(Qt::Key_Escape, [this] {
         if (popup_) popup_->hide();
     });
@@ -356,9 +360,11 @@ MainWindow::MainWindow() {
     // Icon-only buttons: Open on the left; Open in Full and Settings go right, before the window controls.
     row->removeWidget(settingsBtn);
     row->removeWidget(fullBtn);
+    row->removeWidget(aboutBtn);
     row->addWidget(fullBtn);
+    row->addWidget(aboutBtn);
     row->addWidget(settingsBtn);
-    for (QToolButton* b : {openBtn_, fullBtn, settingsBtn}) {
+    for (QToolButton* b : {openBtn_, fullBtn, aboutBtn, settingsBtn}) {
         b->setText(QString());
         b->setToolButtonStyle(Qt::ToolButtonIconOnly);
         b->setFixedSize(46, 46);
@@ -595,6 +601,11 @@ void MainWindow::openDialog() {
     if (path.isEmpty()) return;
     s.setValue("lastDir", QFileInfo(path).absolutePath());
     openFile(path);
+}
+
+void MainWindow::openAbout() {
+    AboutDialog dlg(this);
+    dlg.exec();
 }
 
 void MainWindow::openSettings() {

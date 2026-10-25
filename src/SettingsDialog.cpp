@@ -3,7 +3,6 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
-#include <QFile>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QHeaderView>
@@ -12,7 +11,6 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
-#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QTableWidget>
@@ -22,6 +20,7 @@
 #include <functional>
 
 #include "Icons.h"
+#include "SupportButtons.h"
 
 namespace {
 
@@ -261,16 +260,16 @@ SettingsDialog::SettingsDialog(const Controls& initial, int meshQuality, const P
     body->addWidget(scroll, 1);
     root->addLayout(body, 1);
 
+    const int supportCat = addCategory("Support");  // first category = the page Settings opens on
     const int controlsCat = addCategory("Controls");
     const int shortcutsCat = addCategory("Shortcuts");
     const int meshCat = addCategory("Mesh quality");
     const int plateCat = addCategory("Print plate");
-    const int aboutCat = addCategory("About");
+    buildSupportItems(supportCat);
     buildControlsItems(controlsCat);
     buildShortcutItems(shortcutsCat);
     buildMeshItems(meshCat, meshQuality);
     buildPlateItems(plateCat, plate);
-    buildAboutItems(aboutCat);
 
     empty_ = new QLabel("No settings found.");
     empty_->setStyleSheet("QLabel{color:palette(placeholder-text);}");
@@ -353,6 +352,14 @@ void SettingsDialog::addWide(int category, const QString& description, QWidget* 
     items_.push_back({w, category, (categoryNames_[category] + " " + keywords).toLower(), table});
 }
 
+void SettingsDialog::buildSupportItems(int cat) {
+    addWide(cat,
+            "CADscout is free software. If it is useful to you, you can support its development with a donation.\n\n"
+            "You pay on the donation website, in your browser. CADscout never sees your payment details, and "
+            "nothing is unlocked in return.",
+            new SupportButtons, "support donate donation coffee buy me a coffee ko-fi kofi tip thanks free");
+}
+
 void SettingsDialog::buildControlsItems(int cat) {
     auto* presets = new QWidget;
     auto* row = new QHBoxLayout(presets);
@@ -401,6 +408,7 @@ void SettingsDialog::buildShortcutItems(int cat) {
     table->addRow("Home view", {"H"}, "Anywhere", "Built-in", false);
     table->addRow("Show / hide assembly tree", {"T"}, "Anywhere", "Built-in", false);
 #endif
+    table->addRow("About CADscout", {"F1"}, "Anywhere", "Built-in", false);
     table->addRow("Close the info popup", {"Esc"}, "Anywhere", "Built-in", false);
     addWide(cat, "Keyboard shortcuts of the viewer. They are fixed and cannot be changed.", table,
             "keyboard keys shortcuts open fit edges home tree popup", table);
@@ -510,34 +518,6 @@ void SettingsDialog::buildPlateItems(int cat, const PlateSettings& plate) {
     };
     connect(plateMode_, &QComboBox::currentIndexChanged, this, updateEnabled);
     updateEnabled();
-}
-
-// Version, a short statement and the full license texts (embedded in the program, see resources/legal.qrc).
-void SettingsDialog::buildAboutItems(int cat) {
-    auto readResource = [](const char* path) {
-        QFile f(path);
-        return f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll()) : QString();
-    };
-#ifdef CADSCOUT_LIGHT
-    const QString appName = "CADscout Light";
-#else
-    const QString appName = "CADscout Full";
-#endif
-    auto* text = new QPlainTextEdit;
-    text->setReadOnly(true);
-    text->setLineWrapMode(QPlainTextEdit::NoWrap);
-    text->setFixedHeight(340);
-    text->setMinimumWidth(560);
-    text->setStyleSheet("QPlainTextEdit{border:1px solid palette(mid);border-radius:6px;background:palette(base);"
-                        "padding:6px;font-family:Consolas;font-size:12px;}");
-    text->setPlainText(readResource(":/legal/LICENSE") + "\n\n" + readResource(":/legal/THIRD-PARTY-NOTICES.txt"));
-    addWide(cat,
-            QString("%1 %2 - a CAD and 3D print file viewer. Free software under the MIT license.\n\n"
-                    "It is built with Qt (LGPL v3), Open CASCADE Technology (LGPL 2.1 with exception) and other "
-                    "open-source libraries. Their licenses are below and in the file THIRD-PARTY-NOTICES.txt next to "
-                    "the program.")
-                .arg(appName, CADSCOUT_VERSION),
-            text, "about version license licenses mit qt opencascade notices third party open source free software");
 }
 
 void SettingsDialog::refresh() {

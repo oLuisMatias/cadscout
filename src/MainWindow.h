@@ -38,6 +38,7 @@ protected:
 private slots:
     void openDialog();
     void openSettings();
+    void openAbout();
 #ifdef CADSCOUT_LIGHT
     void openInFull();
 #endif

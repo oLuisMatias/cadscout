@@ -34,13 +34,13 @@ private:
     void addItem(int category, const QString& title, const QString& description, QWidget* control);
     void addWide(int category, const QString& description, QWidget* control, const QString& keywords,
                  QTableWidget* table = nullptr);  // full-width item without a "Category: Title" line
+    void buildSupportItems(int category);
     void buildControlsItems(int category);
     void buildShortcutItems(int category);
     void refreshControlsTable();
     void editBinding(int index);
     void buildMeshItems(int category, int quality);
     void buildPlateItems(int category, const PlateSettings& plate);
-    void buildAboutItems(int category);
     void refresh();
     void apply(const Controls& c);
     void accept() override;
