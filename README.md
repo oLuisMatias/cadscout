@@ -4,14 +4,31 @@
 
 Two editions are built from the same code:
 
-- **CADscout Lite** – a small, minimal window for a quick look (orbit, pan, zoom, perspective on/off).
-- **CADscout Full** – toolbar, assembly tree, edges, view cube, home/fit, plus room for more tools (measure, section view, ...).
+- **CADscout Lite** – a small, fast window for a quick look at a model. Available now.
+- **CADscout Full** – under development.
 
 ## Download
 
 **CADscout Lite** is free in the Microsoft Store: [get it here](https://apps.microsoft.com/detail/9NM96BXSNB6V).
-CADscout Full will follow. If a file does not open correctly, or you have an idea, please leave a review in the Store
-or open an issue here.
+If a file does not open correctly, or you have an idea, please leave a review in the Store or open an issue here.
+See [Releases](../../releases) for what changed in each version.
+
+## What CADscout Lite does
+
+- **Look around:** orbit, pan and zoom with CAD-style mouse controls (changeable in Settings), fit, isometric view, perspective on/off, edges on/off, light and dark theme.
+- **Fast:** STEP files are repaired on all processor cores, and models that took a while to load are kept in a cache,
+  so opening them again is almost instant.
+- **Parts:** click a part to see its name and size; right-click to hide it, show only it or make it transparent.
+- **Sizes:** the model's size (W × D × H) in the status bar, in mm or inches.
+- **Snapshot:** Ctrl+C copies the view as a sharp picture with a transparent background.
+- **Follows your work:** the file reloads by itself when it is saved again (F5 to reload by hand), keeping the camera
+  and the hidden or transparent parts.
+- **Browse:** the Left/Right arrow keys open the previous/next model in the folder; recent files; open a second window
+  (Ctrl+N); drag and drop.
+- **Explorer:** right-click a model file and choose "View with CADscout".
+- **3D printing projects:** for 3MF files a side panel (key I) shows the printer, print profile, filaments, plates,
+  objects and the slicing result.
+- **Languages:** English, Portuguese, German, Spanish and Slovak.
 
 ## What it opens
 
@@ -69,4 +86,4 @@ donation on [Buy Me a Coffee](https://www.buymeacoffee.com/luismatias) or [Ko-fi
 ## Status
 
 Early version: CADscout Lite is released in the Microsoft Store and has not been tested with many files yet.
-CADscout Full is still in development.
+CADscout Full is under development.
