@@ -25,12 +25,45 @@
 #include <XCAFDoc_ColorTool.hxx>
 #include <XCAFDoc_DocumentTool.hxx>
 #include <XCAFDoc_ShapeTool.hxx>
+#include <gp_Ax1.hxx>
+#include <gp_Dir.hxx>
+#include <gp_Pnt.hxx>
 #include <gp_Trsf.hxx>
+#include <cstdlib>
 #include <gp_Vec.hxx>
 #include <iostream>
 
+// Speed test model: `make_sample.exe out.stp --heavy N` writes N different drilled spheres as one assembly.
+static int writeHeavy(const char* out, int count) {
+    using opencascade::handle;
+    handle<XCAFApp_Application> app = XCAFApp_Application::GetApplication();
+    handle<TDocStd_Document> doc;
+    app->NewDocument("BinXCAF", doc);
+    auto st = XCAFDoc_DocumentTool::ShapeTool(doc->Main());
+    TDF_Label asm_ = st->NewShape();
+    for (int i = 0; i < count; ++i) {
+        TopoDS_Shape shape = BRepPrimAPI_MakeSphere(20 + i % 7).Shape();
+        for (int h = 0; h < 6; ++h) {
+            gp_Trsf rot;
+            rot.SetRotation(gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(1, 1, 0.3 * h)), 0.5 * h + 0.01 * i);
+            TopoDS_Shape drill = BRepBuilderAPI_Transform(BRepPrimAPI_MakeCylinder(3 + h % 3, 60).Shape(), rot).Shape();
+            shape = BRepAlgoAPI_Cut(shape, drill).Shape();
+        }
+        gp_Trsf place;
+        place.SetTranslation(gp_Vec(60 * (i % 20), 60 * (i / 20), 0));
+        st->AddComponent(asm_, st->AddShape(shape, false), TopLoc_Location(place));
+    }
+    st->UpdateAssemblies();
+    STEPCAFControl_Writer w;
+    w.Transfer(doc);
+    if (w.Write(out) != IFSelect_RetDone) { std::cerr << "write failed\n"; return 1; }
+    std::cout << "wrote " << out << " (" << count << " parts)\n";
+    return 0;
+}
+
 int main(int argc, char** argv) {
     using opencascade::handle;
+    if (argc > 3 && std::string(argv[2]) == "--heavy") return writeHeavy(argv[1], std::atoi(argv[3]));
     handle<XCAFApp_Application> app = XCAFApp_Application::GetApplication();
     handle<TDocStd_Document> doc;
     app->NewDocument("BinXCAF", doc);

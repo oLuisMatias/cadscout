@@ -7,6 +7,7 @@
 
 #include "MainWindow.h"
 #include "ModernStyle.h"
+#include "Translate.h"
 
 // True when this PC can give us an OpenGL 3.3 context, which the 3D view needs (old graphics cards and some
 // virtual machines cannot).
@@ -55,11 +56,16 @@ int main(int argc, char** argv) {
         }
     }
 
+#ifdef CADSCOUT_LITE
+    // Interface language (Settings > General); Full stays English.
+    setLanguage(languageFromSetting(QSettings().value("ui/language", 0).toInt()));
+#endif
+
     if (!openGlAvailable()) {
         QMessageBox::critical(nullptr, QApplication::applicationDisplayName(),
-                              "The 3D view needs a graphics card or driver that supports OpenGL 3.3, and this computer "
-                              "does not provide it.\n\nPlease update your graphics driver and try again. In a virtual "
-                              "machine, turn on 3D acceleration.");
+                              tx("The 3D view needs a graphics card or driver that supports OpenGL 3.3, and this computer "
+                                 "does not provide it.\n\nPlease update your graphics driver and try again. In a virtual "
+                                 "machine, turn on 3D acceleration."));
         return 1;
     }
 
@@ -69,6 +75,7 @@ int main(int argc, char** argv) {
     QString file;
     for (int i = 1; i < args.size(); ++i) {
         if (args[i] == "--screenshot" && i + 1 < args.size()) w.setScreenshotPath(args[++i]);
+        else if (args[i] == "--new-window") w.move(w.pos() + QPoint(40, 40));  // started by "Open in new window"
         else if (args[i] == "--tree") w.showTree();
         else if (args[i] == "--click" && i + 2 < args.size()) {
             const int x = args[i + 1].toInt(), y = args[i + 2].toInt();

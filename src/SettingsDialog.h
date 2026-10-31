@@ -21,6 +21,12 @@ public:
     Controls controls() const;
     int meshQuality() const;  // 0 fast, 1 balanced, 2 high
     bool browseWithArrows() const;  // Lite only
+    bool autoReload() const;  // Lite only
+    bool useInches() const;   // Lite only
+    int languageSetting() const;  // Lite only: 0 = like Windows, 1..5 = English, Português, Deutsch, Español, Slovenčina
+    bool cacheEnabled() const;
+    int cacheLimitMegabytes() const;
+    double cacheMinSeconds() const;
     PlateSettings plateSettings() const;
 
 private:
@@ -43,6 +49,7 @@ private:
     void editBinding(int index);
     void buildMeshItems(int category, int quality);
     void buildPlateItems(int category, const PlateSettings& plate);
+    void buildCacheItems(int category);
     void refresh();
     void apply(const Controls& c);
     void accept() override;
@@ -60,7 +67,13 @@ private:
     QComboBox* modifier_[3];
     QCheckBox* invert_;
     QCheckBox* arrows_ = nullptr;  // Lite: Left/Right arrow keys open the previous/next file
+    QCheckBox* reload_ = nullptr;  // Lite: reload the file when it changes on disk
+    QComboBox* units_ = nullptr;   // Lite: sizes in millimetres or inches
+    QComboBox* language_ = nullptr;  // Lite: interface language
     QComboBox* quality_;
+    QCheckBox* cacheOn_ = nullptr;
+    QComboBox* cacheLimit_ = nullptr;
+    QComboBox* cacheMin_ = nullptr;
     QComboBox* plateMode_;
     QDoubleSpinBox* plateWidth_;
     QDoubleSpinBox* plateDepth_;

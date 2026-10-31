@@ -7,6 +7,12 @@ Two editions are built from the same code:
 - **CADscout Lite** – a small, minimal window for a quick look (orbit, pan, zoom, perspective on/off).
 - **CADscout Full** – toolbar, assembly tree, edges, view cube, home/fit, plus room for more tools (measure, section view, ...).
 
+## Download
+
+**CADscout Lite** is free in the Microsoft Store: [get it here](https://apps.microsoft.com/detail/9NM96BXSNB6V).
+CADscout Full will follow. If a file does not open correctly, or you have an idea, please leave a review in the Store
+or open an issue here.
+
 ## What it opens
 
 | Format | Extensions |
@@ -21,6 +27,9 @@ Two editions are built from the same code:
 | glTF | `.gltf` `.glb` |
 | 3MF, including Bambu Studio / Orca Slicer projects | `.3mf` |
 | DXF (ASCII; 3D faces and 2D lines) | `.dxf` |
+
+CADscout Lite also opens these files inside a `.zip` archive without unpacking it first (it asks which one when the zip
+holds several).
 
 For Bambu Studio / Orca Slicer projects it shows every plate with its printer bed, the objects and parts with their
 filament colours, and a click on a plate or part shows the plate name and print time, or the object and its filament.
@@ -51,6 +60,13 @@ It is built with [Qt](https://www.qt.io/) (LGPL v3), [Open CASCADE Technology](h
 Their licenses are listed in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt), which is also shown in the app
 (About window, button in the toolbar or F1) and shipped next to the programs.
 
+## Support
+
+CADscout is free, and nothing is unlocked by paying. If it is useful to you, you can support its development with a
+donation on [Buy Me a Coffee](https://www.buymeacoffee.com/luismatias) or [Ko-fi](https://ko-fi.com/oluismatias)
+(also linked in the app: Settings > Support and the About window).
+
 ## Status
 
-Early development (version 0.1.0).
+Early version: CADscout Lite is released in the Microsoft Store and has not been tested with many files yet.
+CADscout Full is still in development.

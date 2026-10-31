@@ -106,6 +106,7 @@ public:
 protected:
     void paintEvent(QPaintEvent* e) override {
         QDoubleSpinBox::paintEvent(e);
+        if (buttonSymbols() == QAbstractSpinBox::NoButtons) return;  // no up/down buttons: no arrows either
         const qreal half = height() / 2.0;
         paintChevron(this, QRectF(width() - kSpinButtonWidth, 0, kSpinButtonWidth, half), true);
         paintChevron(this, QRectF(width() - kSpinButtonWidth, half, kSpinButtonWidth, half), false);

@@ -13,6 +13,7 @@
 #include <QVBoxLayout>
 
 #include "Support.h"
+#include "Translate.h"
 
 namespace {
 constexpr int kQrSize = 88;
@@ -41,7 +42,7 @@ SupportButtons::SupportButtons(QWidget* parent) : QWidget(parent) {
                               "QPushButton:hover{background:transparent;}");
         connect(button, &QPushButton::clicked, this, [this, name, url] {
             if (!*url) {
-                QMessageBox::information(this, name, "This donation page is not set up yet.");
+                QMessageBox::information(this, name, tx("This donation page is not set up yet."));
                 return;
             }
             QDesktopServices::openUrl(QUrl(QString::fromUtf8(url)));
@@ -62,14 +63,14 @@ SupportButtons::SupportButtons(QWidget* parent) : QWidget(parent) {
         qr->setPixmap(QPixmap(qrResource));
         qr->setFixedSize(kQrSize, kQrSize);
         qr->setScaledContents(true);
-        qr->setToolTip(QString("Scan with your phone to open the %1 page").arg(name));
+        qr->setToolTip(tx("Scan with your phone to open the %1 page").arg(name));
         inner->addWidget(qr);
 
         auto* side = new QVBoxLayout;
         side->setSpacing(8);
         side->addStretch(1);
         side->addWidget(makeButton(buttonPicture, name, url), 0, Qt::AlignLeft);
-        auto* hint = new QLabel("Click, or scan the code with your phone.");
+        auto* hint = new QLabel(tx("Click, or scan the code with your phone."));
         hint->setWordWrap(true);
         hint->setStyleSheet("QLabel{color:palette(placeholder-text);font-size:11px;}");
         side->addWidget(hint);

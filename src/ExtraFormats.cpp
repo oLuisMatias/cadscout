@@ -1,5 +1,7 @@
 #include "ExtraFormats.h"
 
+#include "Translate.h"
+
 #include <algorithm>
 #include <cctype>
 #include <charconv>
@@ -35,75 +37,154 @@ namespace {
 
 using Bytes = std::vector<uint8_t>;
 
-Bytes readWholeFile(const std::string& path) {
-    std::ifstream in(std::filesystem::u8path(path), std::ios::binary);
-    if (!in) throw std::runtime_error("Could not read the file.");
-    return Bytes(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-}
-
 uint32_t rd16(const Bytes& b, size_t o) { return uint32_t(b[o]) | (uint32_t(b[o + 1]) << 8); }
 uint32_t rd32(const Bytes& b, size_t o) { return rd16(b, o) | (rd16(b, o + 2) << 16); }
 
 uint32_t quantize(float v) { return uint32_t(std::lround(std::fmin(std::fmax(v, 0.f), 1.f) * 255.f)); }
 
-// ---------------------------------------------------------------- zip (just enough for 3MF)
+// ---------------------------------------------------------------- zip (3MF projects, and zip files holding models)
 
 struct ZipEntry {
     std::string name;
-    uint32_t method = 0, csize = 0, usize = 0, offset = 0;
+    uint32_t flags = 0, method = 0, csize = 0, usize = 0, offset = 0;
 };
 
-std::runtime_error badZip() { return std::runtime_error("The 3MF file is not a valid zip archive."); }
-
-std::vector<ZipEntry> zipEntries(const Bytes& z) {
-    if (z.size() < 22) throw badZip();
-    const size_t lowest = z.size() > 22 + 65535 ? z.size() - 22 - 65535 : 0;
-    size_t eocd = std::string::npos;
-    for (size_t i = z.size() - 22;; --i) {
-        if (rd32(z, i) == 0x06054b50) { eocd = i; break; }
-        if (i == lowest) break;
-    }
-    if (eocd == std::string::npos) throw badZip();
-    const uint32_t count = rd16(z, eocd + 10);
-    size_t p = rd32(z, eocd + 16);
-    std::vector<ZipEntry> out;
-    for (uint32_t i = 0; i < count; ++i) {
-        if (p + 46 > z.size() || rd32(z, p) != 0x02014b50) throw badZip();
-        ZipEntry e;
-        e.method = rd16(z, p + 10);
-        e.csize = rd32(z, p + 20);
-        e.usize = rd32(z, p + 24);
-        e.offset = rd32(z, p + 42);
-        if (e.csize == 0xFFFFFFFFu || e.usize == 0xFFFFFFFFu || e.offset == 0xFFFFFFFFu)
-            throw std::runtime_error("This 3MF file is larger than 4 GB (zip64), which is not supported.");
-        const size_t nameLen = rd16(z, p + 28), extraLen = rd16(z, p + 30), commentLen = rd16(z, p + 32);
-        if (p + 46 + nameLen > z.size()) throw badZip();
-        e.name.assign(reinterpret_cast<const char*>(z.data() + p + 46), nameLen);
-        out.push_back(std::move(e));
-        p += 46 + nameLen + extraLen + commentLen;
-    }
-    return out;
-}
-
-Bytes zipRead(const Bytes& z, const ZipEntry& e) {
-    if (size_t(e.offset) + 30 > z.size() || rd32(z, e.offset) != 0x04034b50) throw badZip();
-    const size_t start = size_t(e.offset) + 30 + rd16(z, e.offset + 26) + rd16(z, e.offset + 28);
-    if (start + e.csize > z.size()) throw badZip();
-    if (e.method == 0) return Bytes(z.begin() + std::ptrdiff_t(start), z.begin() + std::ptrdiff_t(start + e.csize));
-    if (e.method != 8) throw std::runtime_error("The 3MF file uses an unsupported zip compression.");
+// Raw deflate data -> `usize` bytes. False when the data is damaged.
+bool inflateRaw(const uint8_t* src, uint32_t csize, uint32_t usize, Bytes& out) {
     // Deflate cannot shrink data by more than about 1000:1: a bigger claim in the header means a damaged file.
-    if (e.usize > uint64_t(e.csize) * 1100 + 4096) throw badZip();
-    Bytes out(e.usize);
+    if (usize > uint64_t(csize) * 1100 + 4096) return false;
+    out.assign(usize, 0);
+    if (usize == 0) return true;
     z_stream zs{};
-    if (inflateInit2(&zs, -MAX_WBITS) != Z_OK) throw badZip();
-    zs.next_in = const_cast<Bytef*>(z.data() + start);
-    zs.avail_in = e.csize;
+    if (inflateInit2(&zs, -MAX_WBITS) != Z_OK) return false;
+    zs.next_in = const_cast<Bytef*>(src);
+    zs.avail_in = csize;
     zs.next_out = out.data();
-    zs.avail_out = e.usize;
+    zs.avail_out = usize;
     const int rc = inflate(&zs, Z_FINISH);
     inflateEnd(&zs);
-    if (rc != Z_STREAM_END && !(rc == Z_OK && zs.avail_out == 0)) throw badZip();
-    return out;
+    return rc == Z_STREAM_END || (rc == Z_OK && zs.avail_out == 0);
+}
+
+bool isUtf8(const std::string& s) {
+    for (size_t i = 0; i < s.size();) {
+        const auto c = static_cast<unsigned char>(s[i]);
+        const size_t n = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2 : (c >> 4) == 0xE ? 3 : (c >> 3) == 0x1E ? 4 : 0;
+        if (n == 0 || i + n > s.size()) return false;
+        for (size_t k = 1; k < n; ++k)
+            if ((static_cast<unsigned char>(s[i + k]) >> 6) != 0x2) return false;
+        i += n;
+    }
+    return true;
+}
+
+}  // namespace
+
+// Windows' own code page conversion (declared here so this file does not need <windows.h> and its macros).
+extern "C" __declspec(dllimport) int __stdcall MultiByteToWideChar(unsigned int codePage, unsigned long flags,
+                                                                   const char* text, int size, wchar_t* out, int outSize);
+
+namespace {
+
+// Zip entry names are UTF-8 only when the archive says so (flag bit 11). Older tools, such as the zip folders of older
+// Windows versions, store them in the DOS code page of the PC ("Peça.stp" then has a byte that is not valid UTF-8).
+std::string zipNameToUtf8(const std::string& raw, uint32_t flags) {
+    if ((flags & 0x800) || isUtf8(raw)) return raw;
+    constexpr unsigned int kOemCodePage = 1;  // CP_OEMCP
+    const int n = MultiByteToWideChar(kOemCodePage, 0, raw.data(), int(raw.size()), nullptr, 0);
+    if (n <= 0) return raw;
+    std::wstring wide(size_t(n), L'\0');
+    MultiByteToWideChar(kOemCodePage, 0, raw.data(), int(raw.size()), wide.data(), n);
+    return QString::fromWCharArray(wide.data(), n).toUtf8().toStdString();
+}
+
+// Reads only the parts of the archive that are needed (the file may be large). `invalidText` is the message for a damaged
+// or non-zip file (3MF files say "The 3MF file ...").
+struct ZipFile {
+    std::ifstream in;
+    uint64_t size = 0;
+    std::vector<ZipEntry> entries;
+    const char* invalidText;
+
+    std::runtime_error invalid() const { return std::runtime_error(tr8(invalidText)); }
+
+    void readAt(uint64_t offset, void* dst, size_t n) {
+        in.clear();
+        in.seekg(std::streamoff(offset));
+        in.read(static_cast<char*>(dst), std::streamsize(n));
+        if (in.gcount() != std::streamsize(n)) throw invalid();
+    }
+
+    explicit ZipFile(const std::string& path, const char* invalidMessage = "The zip file could not be read.")
+        : in(std::filesystem::u8path(path), std::ios::binary), invalidText(invalidMessage) {
+        if (!in) throw std::runtime_error(tr8("Could not read the file."));
+        in.seekg(0, std::ios::end);
+        size = uint64_t(in.tellg());
+        if (size < 22) throw invalid();
+        const uint64_t tailLen = std::min<uint64_t>(size, 22 + 65535);
+        Bytes tail(tailLen);
+        readAt(size - tailLen, tail.data(), tail.size());
+        size_t eocd = std::string::npos;
+        for (size_t i = tail.size() - 22;; --i) {
+            if (rd32(tail, i) == 0x06054b50) { eocd = i; break; }
+            if (i == 0) break;
+        }
+        if (eocd == std::string::npos) throw invalid();
+        const uint32_t count = rd16(tail, eocd + 10), cdSize = rd32(tail, eocd + 12), cdOffset = rd32(tail, eocd + 16);
+        if (count == 0xFFFF || cdSize == 0xFFFFFFFFu || cdOffset == 0xFFFFFFFFu)
+            throw std::runtime_error(tr8("Zip files larger than 4 GB are not supported."));
+        if (uint64_t(cdOffset) + cdSize > size) throw invalid();
+        Bytes cd(cdSize);
+        readAt(cdOffset, cd.data(), cd.size());
+        size_t p = 0;
+        for (uint32_t i = 0; i < count; ++i) {
+            if (p + 46 > cd.size() || rd32(cd, p) != 0x02014b50) throw invalid();
+            ZipEntry e;
+            e.flags = rd16(cd, p + 8);
+            e.method = rd16(cd, p + 10);
+            e.csize = rd32(cd, p + 20);
+            e.usize = rd32(cd, p + 24);
+            e.offset = rd32(cd, p + 42);
+            if (e.csize == 0xFFFFFFFFu || e.usize == 0xFFFFFFFFu || e.offset == 0xFFFFFFFFu)
+                throw std::runtime_error(tr8("Zip files larger than 4 GB are not supported."));
+            const size_t nameLen = rd16(cd, p + 28), extraLen = rd16(cd, p + 30), commentLen = rd16(cd, p + 32);
+            if (p + 46 + nameLen > cd.size()) throw invalid();
+            e.name = zipNameToUtf8(std::string(reinterpret_cast<const char*>(cd.data() + p + 46), nameLen), e.flags);
+            std::replace(e.name.begin(), e.name.end(), '\\', '/');
+            entries.push_back(std::move(e));
+            p += 46 + nameLen + extraLen + commentLen;
+        }
+    }
+
+    Bytes read(const ZipEntry& e) {
+        if (e.flags & 1) throw std::runtime_error(tr8("This zip file is protected with a password."));
+        uint8_t hdr[30];
+        readAt(e.offset, hdr, sizeof hdr);
+        const Bytes h(hdr, hdr + 30);
+        if (rd32(h, 0) != 0x04034b50) throw invalid();
+        const uint64_t start = uint64_t(e.offset) + 30 + rd16(h, 26) + rd16(h, 28);
+        if (start + e.csize > size) throw invalid();
+        Bytes data(e.csize);
+        readAt(start, data.data(), data.size());
+        if (e.method == 0) return data;
+        if (e.method != 8) throw std::runtime_error(tr8("The zip file uses a compression method that is not supported."));
+        Bytes out;
+        if (!inflateRaw(data.data(), e.csize, e.usize, out)) throw invalid();
+        return out;
+    }
+};
+
+std::string lowerExtension(const std::string& name) {
+    const size_t dot = name.find_last_of('.'), slash = name.find_last_of('/');
+    if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) return {};
+    std::string ext = name.substr(dot + 1);
+    for (char& c : ext) c = char(std::tolower(static_cast<unsigned char>(c)));
+    return ext;
+}
+
+bool isJunkEntry(const std::string& name) {
+    return name.empty() || name.back() == '/' || name.rfind("__MACOSX/", 0) == 0 || name.find("/._") != std::string::npos ||
+           name.rfind("._", 0) == 0;
 }
 
 // ---------------------------------------------------------------- 3MF (plain, and Bambu Studio / Orca Slicer projects)
@@ -151,13 +232,32 @@ double toDouble(std::string_view s, double def = 0.0) {
     return r.ec == std::errc() ? v : def;
 }
 
+void appendUtf8(std::string& out, uint32_t cp) {
+    if (cp < 0x80) {
+        out += char(cp);
+    } else if (cp < 0x800) {
+        out += char(0xC0 | (cp >> 6));
+        out += char(0x80 | (cp & 0x3F));
+    } else if (cp < 0x10000) {
+        out += char(0xE0 | (cp >> 12));
+        out += char(0x80 | ((cp >> 6) & 0x3F));
+        out += char(0x80 | (cp & 0x3F));
+    } else {
+        out += char(0xF0 | (cp >> 18));
+        out += char(0x80 | ((cp >> 12) & 0x3F));
+        out += char(0x80 | ((cp >> 6) & 0x3F));
+        out += char(0x80 | (cp & 0x3F));
+    }
+}
+
+// XML text -> plain UTF-8: the named entities and numeric ones (&#233; &#xE9;).
 std::string unescapeXml(std::string_view s) {
     std::string out;
     out.reserve(s.size());
     for (size_t i = 0; i < s.size(); ++i) {
         if (s[i] == '&') {
             const size_t semi = s.find(';', i);
-            if (semi != std::string_view::npos) {
+            if (semi != std::string_view::npos && semi - i <= 10) {
                 const std::string_view ent = s.substr(i + 1, semi - i - 1);
                 char rep = 0;
                 if (ent == "amp") rep = '&';
@@ -166,11 +266,84 @@ std::string unescapeXml(std::string_view s) {
                 else if (ent == "quot") rep = '"';
                 else if (ent == "apos") rep = '\'';
                 if (rep) { out += rep; i = semi; continue; }
+                if (ent.size() >= 2 && ent[0] == '#') {
+                    const bool hex = ent[1] == 'x' || ent[1] == 'X';
+                    const std::string_view digits = ent.substr(hex ? 2 : 1);
+                    uint32_t cp = 0;
+                    const auto r = std::from_chars(digits.data(), digits.data() + digits.size(), cp, hex ? 16 : 10);
+                    if (r.ec == std::errc() && r.ptr == digits.data() + digits.size() && cp > 0 && cp <= 0x10FFFF &&
+                        (cp < 0xD800 || cp > 0xDFFF)) {
+                        appendUtf8(out, cp);
+                        i = semi;
+                        continue;
+                    }
+                }
             }
         }
         out += s[i];
     }
     return out;
+}
+
+// Descriptions from model websites (MakerWorld, Printables) are web pages: keep the text, turn paragraphs and line breaks
+// into new lines, and drop the other markup.
+std::string htmlToText(const std::string& html) {
+    // Plain text (no tag such as <p> or </b>) keeps its own line breaks, even when it contains '&' or '<'.
+    bool hasTag = false;
+    for (size_t p = html.find('<'); p != std::string::npos && !hasTag; p = html.find('<', p + 1))
+        hasTag = p + 1 < html.size() &&
+                 (std::isalpha(static_cast<unsigned char>(html[p + 1])) || html[p + 1] == '/' || html[p + 1] == '!') &&
+                 html.find('>', p) != std::string::npos;
+    if (!hasTag) return html;
+    std::string out;
+    // Like a browser: spaces and line breaks of the page source count as one space; only <br>, </p>, ... start a new line.
+    auto newLine = [&] {
+        while (!out.empty() && out.back() == ' ') out.pop_back();
+        if (!out.empty() && out.back() != '\n') out += '\n';
+    };
+    for (size_t i = 0; i < html.size();) {
+        const char c = html[i];
+        const bool tagStart = c == '<' && i + 1 < html.size() &&
+                              (std::isalpha(static_cast<unsigned char>(html[i + 1])) || html[i + 1] == '/' || html[i + 1] == '!');
+        const size_t close = tagStart ? html.find('>', i) : std::string::npos;
+        if (close == std::string::npos) {  // ordinary text (a lone '<' as in "<5 mm" stays)
+            if (isSpaceChar(c)) {
+                if (!out.empty() && out.back() != ' ' && out.back() != '\n') out += ' ';
+            } else {
+                out += c;
+            }
+            ++i;
+            continue;
+        }
+        std::string tag = html.substr(i + 1, close - i - 1);
+        for (char& t : tag) t = char(std::tolower(static_cast<unsigned char>(t)));
+        if (tag.rfind("br", 0) == 0 || tag == "/p" || tag == "/div" || tag == "/li" || tag.rfind("/h", 0) == 0) newLine();
+        i = close + 1;
+    }
+    // The entities of the page itself: the common HTML ones first (website editors write &nbsp; and typographic marks),
+    // then the XML ones and numeric ones.
+    static const std::pair<const char*, const char*> kHtmlEntities[] = {
+        {"&nbsp;", " "},        {"&ndash;", "–"}, {"&mdash;", "—"}, {"&hellip;", "…"},
+        {"&lsquo;", "‘"},  {"&rsquo;", "’"}, {"&ldquo;", "“"}, {"&rdquo;", "”"},
+        {"&deg;", "°"},    {"&copy;", "©"},  {"&reg;", "®"},   {"&trade;", "™"},
+        {"&times;", "×"},  {"&plusmn;", "±"}, {"&euro;", "€"}, {"&bull;", "•"},
+        {"&middot;", "·"}, {"&frac12;", "½"}};
+    for (const auto& [entity, text] : kHtmlEntities)
+        for (size_t pos = out.find(entity); pos != std::string::npos; pos = out.find(entity, pos + std::strlen(text)))
+            out.replace(pos, std::strlen(entity), text);
+    out = unescapeXml(out);
+    // Trim every line (a &nbsp; at a line end becomes a space) and drop empty lines at the start and end.
+    std::string trimmed;
+    size_t start = 0;
+    while (start <= out.size()) {
+        const size_t end = std::min(out.find('\n', start), out.size());
+        std::string_view line = std::string_view(out).substr(start, end - start);
+        while (!line.empty() && isSpaceChar(line.front())) line.remove_prefix(1);
+        while (!line.empty() && isSpaceChar(line.back())) line.remove_suffix(1);
+        if (!line.empty()) trimmed += (trimmed.empty() ? "" : "\n") + std::string(line);
+        start = end + 1;
+    }
+    return trimmed;
 }
 
 std::string_view trimView(std::string_view s) {
@@ -332,6 +505,7 @@ struct ModelFile {  // one parsed *.model file
     std::vector<Item> items;
     std::vector<std::string> paintStrings;
     std::string application;
+    std::map<std::string, std::string> metadata;  // <metadata name="..."> entries of the file (title, designer, dates, ...)
     double unit = 1.0;  // to millimetres
 };
 
@@ -398,8 +572,11 @@ ModelFile parseModelXml(const Bytes& xml) {
             parseHexColor(t.get(n == "base" ? "displaycolor" : "color"), c);
             f.colorGroups[group].push_back(c);
         } else if (n == "metadata") {
-            if (t.get("name") == "Application" && !t.selfClosing)
-                f.application = unescapeXml(trimView(tk.textAfterTag()));
+            if (!t.selfClosing && !t.get("name").empty()) {
+                const std::string value = unescapeXml(trimView(tk.textAfterTag()));
+                f.metadata[std::string(t.get("name"))] = value;
+                if (t.get("name") == "Application") f.application = value;
+            }
         }
     }
     return f;
@@ -491,13 +668,151 @@ BambuCfg parseModelSettings(const Bytes& xml) {
     return cfg;
 }
 
+struct FilamentDetail {  // one filament slot of the project
+    std::string colour;   // "#RRGGBB" as stored
+    std::string type, vendor, profile;
+    std::string details;  // "1.75 mm · 1.32 g/cm³ · 15.99 per kg · bed 55 °C"
+};
+
 struct ProjectInfo {
     std::vector<std::array<float, 3>> filamentColors;
     std::vector<std::string> filamentTypes;
+    std::vector<std::string> filamentVendors;
+    std::vector<FilamentDetail> filaments;
+    std::vector<InfoSection> sections;  // "Printer" and "Print profile"
     std::string printer;
     double nozzle = 0;
     std::vector<std::array<double, 2>> bed;  // printable_area polygon, plate-local millimetres
 };
+
+// Helpers for project_settings.config values: some are text, some one-element arrays, most numbers are stored as text.
+std::string settingText(const QJsonObject& o, const char* key) {
+    const QJsonValue v = o.value(key);
+    if (v.isString()) return v.toString().toStdString();
+    if (v.isDouble()) return QString::number(v.toDouble()).toStdString();
+    if (v.isBool()) return v.toBool() ? "1" : "0";
+    if (v.isArray() && !v.toArray().isEmpty()) {
+        const QJsonValue first = v.toArray().first();
+        if (first.isString()) return first.toString().toStdString();
+        if (first.isDouble()) return QString::number(first.toDouble()).toStdString();
+    }
+    return {};
+}
+
+std::vector<std::string> settingList(const QJsonObject& o, const char* key) {
+    std::vector<std::string> out;
+    for (const QJsonValue& v : o.value(key).toArray()) out.push_back(v.isString() ? v.toString().toStdString() : "");
+    return out;
+}
+
+bool isOn(const std::string& v) { return v == "1" || v == "true"; }
+std::string onOff(const std::string& v) { return tr8(isOn(v) ? "On" : "Off"); }
+
+// "Printer" and "Print profile" sections, plus the filament slots, from project_settings.config.
+void describeProject(const QJsonObject& o, ProjectInfo& info) {
+    auto add = [](InfoSection& s, const char* label, const std::string& value, const char* unit = "") {
+        if (!value.empty()) s.rows.push_back({tr8(label), value + unit, ""});
+    };
+
+    InfoSection printer{tr8("Printer"), {}};
+    add(printer, "Printer", settingText(o, "printer_model"));
+    add(printer, "Profile", settingText(o, "printer_settings_id"));
+    add(printer, "Nozzle", settingText(o, "nozzle_diameter"), " mm");
+    if (info.bed.size() >= 3) {
+        double minX = info.bed[0][0], maxX = minX, minY = info.bed[0][1], maxY = minY;
+        for (const auto& p : info.bed) {
+            minX = std::min(minX, p[0]); maxX = std::max(maxX, p[0]);
+            minY = std::min(minY, p[1]); maxY = std::max(maxY, p[1]);
+        }
+        char buf[64];
+        std::snprintf(buf, sizeof buf, "%g × %g mm", maxX - minX, maxY - minY);
+        add(printer, "Bed", buf);
+    }
+    add(printer, "Maximum height", settingText(o, "printable_height"), " mm");
+    add(printer, "G-code flavour", settingText(o, "gcode_flavor"));
+    if (!printer.rows.empty()) info.sections.push_back(std::move(printer));
+
+    InfoSection print{tr8("Print profile"), {}};
+    add(print, "Profile", settingText(o, "print_settings_id"));
+    add(print, "Based on", settingText(o, "default_print_profile"));
+    add(print, "Layer height", settingText(o, "layer_height"), " mm");
+    add(print, "First layer", settingText(o, "initial_layer_print_height"), " mm");
+    add(print, "Walls", settingText(o, "wall_loops"));
+    if (!settingText(o, "top_shell_layers").empty())
+        add(print, "Top / bottom layers", settingText(o, "top_shell_layers") + " / " + settingText(o, "bottom_shell_layers"));
+    if (!settingText(o, "sparse_infill_density").empty())
+        add(print, "Infill", settingText(o, "sparse_infill_density") + " " + settingText(o, "sparse_infill_pattern"));
+    if (!settingText(o, "enable_support").empty()) {
+        std::string s = onOff(settingText(o, "enable_support"));
+        if (isOn(settingText(o, "enable_support"))) s += " · " + settingText(o, "support_type") + " " + settingText(o, "support_style");
+        add(print, "Supports", s);
+    }
+    add(print, "Brim", settingText(o, "brim_type"));
+    if (settingText(o, "skirt_loops") != "0") add(print, "Skirt loops", settingText(o, "skirt_loops"));
+    if (!settingText(o, "raft_layers").empty() && settingText(o, "raft_layers") != "0")
+        add(print, "Raft layers", settingText(o, "raft_layers"));
+    add(print, "Seam", settingText(o, "seam_position"));
+    add(print, "Ironing", settingText(o, "ironing_type"));
+    add(print, "Fuzzy skin", settingText(o, "fuzzy_skin"));
+    if (!settingText(o, "spiral_mode").empty()) add(print, "Spiral vase", onOff(settingText(o, "spiral_mode")));
+    if (!settingText(o, "enable_prime_tower").empty()) add(print, "Prime tower", onOff(settingText(o, "enable_prime_tower")));
+    add(print, "Print sequence", settingText(o, "print_sequence"));
+    const std::string bedType = settingText(o, "curr_bed_type");
+    add(print, "Build plate", bedType);
+    // Settings the user changed from the profile they started with (internal names, shortened).
+    {
+        const std::vector<std::string> changed = settingList(o, "different_settings_to_system");
+        std::string joined;
+        int count = 0;
+        for (const std::string& list : changed) {
+            size_t pos = 0;
+            while (pos <= list.size()) {
+                const size_t semi = list.find(';', pos);
+                std::string name = list.substr(pos, semi == std::string::npos ? std::string::npos : semi - pos);
+                pos = semi == std::string::npos ? list.size() + 1 : semi + 1;
+                if (name.empty()) continue;
+                std::replace(name.begin(), name.end(), '_', ' ');
+                if (++count <= 30) joined += (joined.empty() ? "" : ", ") + name;
+            }
+        }
+        if (count > 0) {
+            if (count > 30) joined += ", ... " + tr8f("(%1 more)", {std::to_string(count - 30)});
+            add(print, "Changed from profile", tr8f("%1 settings: %2", {std::to_string(count), joined}));
+        }
+    }
+    if (!print.rows.empty()) info.sections.push_back(std::move(print));
+
+    // Filament slots. Temperature lists can have several entries per slot (variants); they are shown only when there is one.
+    const std::vector<std::string> colours = settingList(o, "filament_colour"), types = settingList(o, "filament_type"),
+                                   vendors = settingList(o, "filament_vendor"), profiles = settingList(o, "filament_settings_id"),
+                                   diameters = settingList(o, "filament_diameter"), densities = settingList(o, "filament_density"),
+                                   costs = settingList(o, "filament_cost");
+    const char* bedKey = bedType == "Cool Plate" ? "cool_plate_temp"
+                         : bedType == "Engineering Plate" ? "eng_plate_temp"
+                         : bedType == "High Temp Plate" ? "hot_plate_temp"
+                         : bedType == "Textured PEI Plate" ? "textured_plate_temp" : nullptr;
+    const std::vector<std::string> bedTemps = bedKey ? settingList(o, bedKey) : std::vector<std::string>();
+    const std::vector<std::string> nozzleTemps = settingList(o, "nozzle_temperature");
+    for (size_t i = 0; i < colours.size(); ++i) {
+        FilamentDetail d;
+        d.colour = colours[i];
+        if (i < types.size()) d.type = types[i];
+        if (i < vendors.size()) d.vendor = vendors[i];
+        if (i < profiles.size()) d.profile = profiles[i];
+        std::string text;
+        auto part = [&](const std::string& s) {
+            if (!s.empty()) text += (text.empty() ? "" : " · ") + s;
+        };
+        if (i < diameters.size() && !diameters[i].empty()) part(diameters[i] + " mm");
+        if (i < densities.size() && !densities[i].empty()) part(densities[i] + " g/cm³");
+        if (i < costs.size() && !costs[i].empty()) part(tr8f("%1 per kg", {costs[i]}));
+        if (nozzleTemps.size() == colours.size() && !nozzleTemps[i].empty()) part(tr8f("nozzle %1 °C", {nozzleTemps[i]}));
+        if (bedTemps.size() == colours.size() && !bedTemps[i].empty() && bedTemps[i] != "0")
+            part(tr8f("bed %1 °C", {bedTemps[i]}));
+        d.details = text;
+        info.filaments.push_back(std::move(d));
+    }
+}
 
 // Metadata/project_settings.config is JSON.
 ProjectInfo parseProjectSettings(const Bytes& json) {
@@ -512,6 +827,7 @@ ProjectInfo parseProjectSettings(const Bytes& json) {
         info.filamentColors.push_back(c);
     }
     for (const QJsonValue& v : obj.value("filament_type").toArray()) info.filamentTypes.push_back(v.toString().toStdString());
+    for (const QJsonValue& v : obj.value("filament_vendor").toArray()) info.filamentVendors.push_back(v.toString().toStdString());
     info.printer = obj.value("printer_model").toString().toStdString();
     for (const QJsonValue& v : obj.value("printable_area").toArray()) {  // entries look like "256x0"
         const std::string s = v.toString().toStdString();
@@ -521,12 +837,44 @@ ProjectInfo parseProjectSettings(const Bytes& json) {
     }
     const QJsonArray nozzles = obj.value("nozzle_diameter").toArray();
     if (!nozzles.isEmpty()) info.nozzle = nozzles.first().toString().toDouble();
+    describeProject(obj, info);
     return info;
 }
+
+// The "Project" section: what the file says about itself (any 3MF may carry these <metadata> entries).
+InfoSection describeFile(const ModelFile& f) {
+    InfoSection s{tr8("Project"), {}};
+    auto meta = [&](const char* label, const char* key) {
+        const auto it = f.metadata.find(key);
+        if (it == f.metadata.end()) return;
+        // Only the description is a web page's HTML; the other values are plain text (a title may hold "<5 mm").
+        const std::string value = std::strcmp(key, "Description") == 0 ? htmlToText(it->second) : it->second;
+        if (!value.empty()) s.rows.push_back({tr8(label), value, ""});
+    };
+    meta("Made with", "Application");
+    meta("Title", "Title");
+    meta("Designer", "Designer");
+    meta("Description", "Description");
+    meta("Copyright", "Copyright");
+    meta("Licence", "License");
+    meta("Created", "CreationDate");
+    meta("Modified", "ModificationDate");
+    meta("Origin", "Origin");
+    return s;
+}
+
+struct SliceFilament {
+    int id = 0;
+    std::string type, color;  // color as "#RRGGBB"
+    double meters = -1, grams = -1;
+};
 
 struct SlicePlate {
     int index = 0;
     double seconds = -1, grams = -1;
+    std::vector<SliceFilament> filaments;
+    std::vector<std::string> warnings;
+    int skippedObjects = 0;
 };
 
 // Metadata/slice_info.config only has plate entries in files that were sliced.
@@ -549,6 +897,19 @@ std::vector<SlicePlate> parseSliceInfo(const Bytes& xml) {
             if (key == "index") plates.back().index = toInt(value, 0);
             else if (key == "prediction") plates.back().seconds = toDouble(value, -1);
             else if (key == "weight") plates.back().grams = toDouble(value, -1);
+        } else if (t.name == "filament" && inPlate) {
+            SliceFilament f;
+            f.id = toInt(t.get("id"), 0);
+            f.type = unescapeXml(t.get("type"));
+            f.color = unescapeXml(t.get("color"));
+            f.meters = toDouble(t.get("used_m"), -1);
+            f.grams = toDouble(t.get("used_g"), -1);
+            plates.back().filaments.push_back(std::move(f));
+        } else if (t.name == "warning" && inPlate) {
+            const std::string msg = unescapeXml(t.get("msg"));
+            if (!msg.empty()) plates.back().warnings.push_back(msg);
+        } else if (t.name == "object" && inPlate && t.get("skipped") == "true") {
+            ++plates.back().skippedObjects;
         }
     }
     return plates;
@@ -616,9 +977,11 @@ std::string formatGrams(double grams) {
     return buf;
 }
 
+// The 3MF archive. Only the parts that are used are read from disk (projects with thumbnails and G-code can be big).
 struct Package {
-    Bytes zip;
-    std::vector<ZipEntry> entries;
+    ZipFile zip;
+    const std::vector<ZipEntry>& entries;
+    explicit Package(const std::string& path) : zip(path, "The 3MF file is not a valid zip archive."), entries(zip.entries) {}
     static std::string norm(std::string s) {
         for (char& c : s) c = c == '\\' ? '/' : char(std::tolower(static_cast<unsigned char>(c)));
         while (!s.empty() && s.front() == '/') s.erase(0, 1);
@@ -635,9 +998,7 @@ struct Package {
 }  // namespace
 
 Scene read3mf(const std::string& path) {
-    Package pkg;
-    pkg.zip = readWholeFile(path);
-    pkg.entries = zipEntries(pkg.zip);
+    Package pkg(path);
 
     const ZipEntry* rootEntry = pkg.find("3D/3dmodel.model");
     if (!rootEntry) {
@@ -646,7 +1007,7 @@ Scene read3mf(const std::string& path) {
             if (lower.size() > 6 && lower.compare(lower.size() - 6, 6, ".model") == 0) { rootEntry = &e; break; }
         }
     }
-    if (!rootEntry) throw std::runtime_error("The 3MF file contains no 3D model.");
+    if (!rootEntry) throw std::runtime_error(tr8("The 3MF file contains no 3D model."));
     const std::string rootKey = Package::norm(rootEntry->name);
 
     // Model files are parsed on first use: Bambu/Orca keep each object in its own 3D/Objects/object_N.model file.
@@ -656,8 +1017,8 @@ Scene read3mf(const std::string& path) {
         const auto it = files.find(key);
         if (it != files.end()) return it->second;
         const ZipEntry* e = pkg.find(key);
-        if (!e) throw std::runtime_error("The 3MF file refers to \"" + name + "\", which is missing from the archive.");
-        return files.emplace(key, parseModelXml(zipRead(pkg.zip, *e))).first->second;
+        if (!e) throw std::runtime_error(tr8f("The 3MF file refers to \"%1\", which is missing from the archive.", {name}));
+        return files.emplace(key, parseModelXml(pkg.zip.read(*e))).first->second;
     };
     const ModelFile& root = getFile("");
     const double scale = root.unit;
@@ -703,7 +1064,7 @@ Scene read3mf(const std::string& path) {
             for (int k = 0; k < 3; ++k) {
                 const int v = t.v[k];
                 if (v < 0 || size_t(v) >= o.verts.size())
-                    throw std::runtime_error("The 3MF file has an invalid vertex index.");
+                    throw std::runtime_error(tr8("The 3MF file has an invalid vertex index."));
                 int& slot = (*rm)[size_t(v)];
                 if (slot < 0) {
                     slot = int(sm->points.size());
@@ -720,7 +1081,7 @@ Scene read3mf(const std::string& path) {
         for (auto& kv : byColor) {
             if (several && (kv.second.filament > 0 || kv.second.hasColor)) {
                 char buf[32];
-                if (kv.second.filament > 0) std::snprintf(buf, sizeof buf, " (filament %d)", kv.second.filament);
+                if (kv.second.filament > 0) std::snprintf(buf, sizeof buf, "%s", tr8f(" (filament %1)", {std::to_string(kv.second.filament)}).c_str());
                 else std::snprintf(buf, sizeof buf, " (#%06X)", unsigned(packColor(kv.second.color)));
                 kv.second.name += buf;
             }
@@ -753,7 +1114,7 @@ Scene read3mf(const std::string& path) {
             const Obj3mf& o = it->second;
             if (!o.tris.empty()) {
                 std::vector<int> idx;
-                emitMeshes(f, o, o.name.empty() ? "Object " + std::to_string(id) : o.name, m, 0, SIZE_MAX, plainColor,
+                emitMeshes(f, o, o.name.empty() ? tr8f("Object %1", {std::to_string(id)}) : o.name, m, 0, SIZE_MAX, plainColor,
                            idx);
             }
             for (const Obj3mf::Comp& c : o.comps)
@@ -769,17 +1130,19 @@ Scene read3mf(const std::string& path) {
             for (const auto& kv : root.objects)
                 if (!referenced.count(kv.first)) addPlain("", kv.first, kIdentity, 0);
         }
-        if (scene.meshes.empty()) throw std::runtime_error("The 3MF file contains no meshes.");
+        if (scene.meshes.empty()) throw std::runtime_error(tr8("The 3MF file contains no meshes."));
+        InfoSection fileSection = describeFile(root);
+        if (!fileSection.rows.empty()) scene.sections.push_back(std::move(fileSection));
         return scene;
     }
 
     // ---- Bambu Studio / Orca Slicer project: plates -> objects -> parts, filament colours, print info.
     BambuCfg cfg;
-    if (const ZipEntry* e = pkg.find("Metadata/model_settings.config")) cfg = parseModelSettings(zipRead(pkg.zip, *e));
+    if (const ZipEntry* e = pkg.find("Metadata/model_settings.config")) cfg = parseModelSettings(pkg.zip.read(*e));
     ProjectInfo project;
-    if (const ZipEntry* e = pkg.find("Metadata/project_settings.config")) project = parseProjectSettings(zipRead(pkg.zip, *e));
+    if (const ZipEntry* e = pkg.find("Metadata/project_settings.config")) project = parseProjectSettings(pkg.zip.read(*e));
     std::vector<SlicePlate> sliced;
-    if (const ZipEntry* e = pkg.find("Metadata/slice_info.config")) sliced = parseSliceInfo(zipRead(pkg.zip, *e));
+    if (const ZipEntry* e = pkg.find("Metadata/slice_info.config")) sliced = parseSliceInfo(pkg.zip.read(*e));
 
     std::map<int, std::vector<const Item*>> itemsOf;  // build items per object, in order = instance 0, 1, ...
     for (const Item& it : root.items) itemsOf[it.object].push_back(&it);
@@ -817,10 +1180,14 @@ Scene read3mf(const std::string& path) {
 
     std::set<int> usedFilaments;
 
+    // Filament of each paint string, decoded once per model file (all parts of a file share its strings).
+    std::map<const ModelFile*, std::vector<int>> paintStates;
     auto emitPart = [&](const ModelFile& f, const Obj3mf& o, const std::string& name, const Mat& m, size_t first,
                         size_t last, int extruder, SceneNode& parent) {
-        std::vector<int> states;
-        for (const std::string& s : f.paintStrings) states.push_back(dominantPaintState(s));
+        auto [cached, isNew] = paintStates.try_emplace(&f);
+        if (isNew)
+            for (const std::string& s : f.paintStrings) cached->second.push_back(dominantPaintState(s));
+        const std::vector<int>& states = cached->second;
         const ColorFn colorOf = [&, extruder](const ModelFile&, const Obj3mf&, const Obj3mf::Tri& t) {
             int filament = extruder > 0 ? extruder : 1;
             if (t.paint >= 0 && size_t(t.paint) < states.size() && states[size_t(t.paint)] > 0)
@@ -842,6 +1209,8 @@ Scene read3mf(const std::string& path) {
             sm.objectName = parent.name;  // `parent` is the object's node
             if (sm.filament >= 1 && size_t(sm.filament) <= project.filamentTypes.size())
                 sm.filamentType = project.filamentTypes[size_t(sm.filament) - 1];
+            if (sm.filament >= 1 && size_t(sm.filament) <= project.filamentVendors.size())
+                sm.filamentVendor = project.filamentVendors[size_t(sm.filament) - 1];
             parent.children.push_back({sm.name, {}, i});
         }
     };
@@ -854,7 +1223,7 @@ Scene read3mf(const std::string& path) {
         const ObjCfg* oc = cit != cfg.objects.end() ? &cit->second : nullptr;
         node.name = oc && !oc->name.empty() ? oc->name
                     : ro && !ro->name.empty() ? ro->name
-                                              : "Object " + std::to_string(item.object);
+                                              : tr8f("Object %1", {std::to_string(item.object)});
         if (!ro) return node;
 
         std::function<void(const std::string&, const Obj3mf&, int, const Mat&, int)> addParts =
@@ -903,7 +1272,7 @@ Scene read3mf(const std::string& path) {
 
     for (size_t plateIndex = 0; plateIndex < plates.size(); ++plateIndex) {
         const PlateCfg& plate = plates[plateIndex];
-        std::string plateTitle = "Plate " + std::to_string(plate.id);
+        std::string plateTitle = tr8f("Plate %1", {std::to_string(plate.id)});
         if (!plate.name.empty()) plateTitle += ": " + plate.name;
         double plateSeconds = -1;
         for (const SlicePlate& sp : sliced)
@@ -920,7 +1289,7 @@ Scene read3mf(const std::string& path) {
         }
         if (pn.children.empty()) continue;
         pn.name = plateTitle;
-        pn.name += " · " + std::to_string(pn.children.size()) + (pn.children.size() == 1 ? " object" : " objects");
+        pn.name += " · " + plural8((long long)pn.children.size(), "%1 object", "%1 objects");
         for (const SlicePlate& sp : sliced) {
             if (sp.index != plate.id) continue;
             if (sp.seconds >= 0) pn.name += " · " + formatDuration(sp.seconds);
@@ -928,7 +1297,7 @@ Scene read3mf(const std::string& path) {
         }
         scene.tree.push_back(std::move(pn));
     }
-    if (scene.meshes.empty()) throw std::runtime_error("The 3MF file contains no meshes.");
+    if (scene.meshes.empty()) throw std::runtime_error(tr8("The 3MF file contains no meshes."));
 
     // Status-bar summary: printer, nozzle size and number of filaments used (plates, objects and print time are in the tree).
     std::string info;
@@ -938,13 +1307,102 @@ Scene read3mf(const std::string& path) {
     add(project.printer);
     if (project.nozzle > 0) {
         char buf[32];
-        std::snprintf(buf, sizeof buf, "%g mm nozzle", project.nozzle);
-        add(buf);
+        std::snprintf(buf, sizeof buf, "%g", project.nozzle);
+        add(tr8f("%1 mm nozzle", {buf}));
     }
-    add(std::to_string(scene.tree.size()) + (scene.tree.size() == 1 ? " plate" : " plates"));
+    add(plural8((long long)scene.tree.size(), "%1 plate", "%1 plates"));
     if (!usedFilaments.empty())
-        add(std::to_string(usedFilaments.size()) + (usedFilaments.size() == 1 ? " filament" : " filaments"));
+        add(plural8((long long)usedFilaments.size(), "%1 filament", "%1 filaments"));
     scene.info = info;
+
+    // ---- Everything else the file says, for the info panel (sections in the order they are shown).
+    {
+        std::vector<InfoSection>& sections = scene.sections;
+        char buf[96];
+
+        InfoSection fileSection = describeFile(root);
+        if (!fileSection.rows.empty()) sections.push_back(std::move(fileSection));
+        for (InfoSection& s : project.sections) sections.push_back(std::move(s));  // Printer, Print profile
+
+        if (!project.filaments.empty()) {
+            InfoSection fs{tr8("Filaments"), {}};
+            for (size_t i = 0; i < project.filaments.size(); ++i) {
+                const FilamentDetail& d = project.filaments[i];
+                std::string value = d.vendor;  // "Bambu Lab PLA"
+                if (!d.type.empty()) value += (value.empty() ? "" : " ") + d.type;
+                if (!d.profile.empty()) value += (value.empty() ? "" : "\n") + d.profile;
+                if (!d.details.empty()) value += (value.empty() ? "" : "\n") + d.details;
+                value += (value.empty() ? "" : "\n") + std::string(tr8(usedFilaments.count(int(i) + 1) ? "Used in this project" : "Not used"));
+                fs.rows.push_back({tr8f("Filament %1", {std::to_string(i + 1)}), value, d.colour});
+            }
+            sections.push_back(std::move(fs));
+        }
+
+        InfoSection plateSection{tr8("Plates"), {}}, objectSection{tr8("Objects"), {}};
+        size_t objectRows = 0, objectsTotal = 0;
+        for (const PlateCfg& plate : plates) {
+            std::string title = tr8f("Plate %1", {std::to_string(plate.id)});
+            if (!plate.name.empty()) title += ": " + plate.name;
+            std::string value = plural8((long long)plate.instances.size(), "%1 object", "%1 objects");
+            for (const SlicePlate& sp : sliced) {
+                if (sp.index != plate.id) continue;
+                if (sp.seconds >= 0) value += " · " + formatDuration(sp.seconds);
+                if (sp.grams >= 0) value += " · " + formatGrams(sp.grams);
+            }
+            plateSection.rows.push_back({title, value, ""});
+            for (const PlateInst& inst : plate.instances) {
+                const auto oc = cfg.objects.find(inst.object);
+                if (oc == cfg.objects.end()) continue;
+                ++objectsTotal;
+                if (objectRows >= 300) continue;
+                int filament = oc->second.extruder;
+                if (filament <= 0 && !oc->second.parts.empty()) filament = oc->second.parts[0].extruder;
+                if (filament <= 0) filament = 1;
+                std::string v = tr8f("Plate %1 · filament %2", {std::to_string(plate.id), std::to_string(filament)});
+                std::string swatch;
+                if (size_t(filament) <= project.filaments.size()) {
+                    const FilamentDetail& d = project.filaments[size_t(filament) - 1];
+                    if (!d.type.empty()) v += " (" + d.type + ")";
+                    swatch = d.colour;
+                }
+                objectSection.rows.push_back({oc->second.name.empty() ? tr8f("Object %1", {std::to_string(inst.object)}) : oc->second.name, v, swatch});
+                ++objectRows;
+            }
+        }
+        if (objectsTotal > objectRows)
+            objectSection.rows.push_back({"...", tr8f("%1 more objects", {std::to_string(objectsTotal - objectRows)}), ""});
+        if (!plateSection.rows.empty()) sections.push_back(std::move(plateSection));
+        if (!objectSection.rows.empty()) sections.push_back(std::move(objectSection));
+
+        // Result of slicing: only a sliced project has it.
+        InfoSection sliceSection{tr8("Slicing result"), {}};
+        double totalSeconds = 0, totalGrams = 0;
+        int slicedPlates = 0;
+        for (const SlicePlate& sp : sliced) {
+            if (sp.seconds < 0 && sp.filaments.empty()) continue;
+            ++slicedPlates;
+            std::string v;
+            if (sp.seconds >= 0) { v = formatDuration(sp.seconds); totalSeconds += sp.seconds; }
+            if (sp.grams >= 0) { v += (v.empty() ? "" : " · ") + formatGrams(sp.grams); totalGrams += sp.grams; }
+            if (sp.skippedObjects > 0) v += (v.empty() ? "" : " · ") + tr8f("%1 skipped", {std::to_string(sp.skippedObjects)});
+            sliceSection.rows.push_back({tr8f("Plate %1", {std::to_string(sp.index)}), v, ""});
+            for (const SliceFilament& f : sp.filaments) {
+                std::string fv = f.type;
+                if (f.meters >= 0) {
+                    std::snprintf(buf, sizeof buf, "%.2f m", f.meters);
+                    fv += (fv.empty() ? "" : " · ") + std::string(buf);
+                }
+                if (f.grams >= 0) fv += (fv.empty() ? "" : " · ") + formatGrams(f.grams);
+                sliceSection.rows.push_back({tr8f("Plate %1, filament %2", {std::to_string(sp.index), std::to_string(f.id)}), fv, f.color});
+            }
+            for (const std::string& w : sp.warnings) sliceSection.rows.push_back({tr8("Warning"), w, ""});
+        }
+        if (slicedPlates > 1)
+            sliceSection.rows.insert(sliceSection.rows.begin(), {tr8("All plates"), formatDuration(totalSeconds) + " · " + formatGrams(totalGrams), ""});
+        if (slicedPlates == 0)
+            sliceSection.rows.push_back({tr8("Status"), tr8("Not sliced. Slice the plates in the slicer and save the project to see print time and filament use here."), ""});
+        sections.push_back(std::move(sliceSection));
+    }
     return scene;
 }
 
@@ -1073,11 +1531,11 @@ struct DxfMeshAcc {
 
 Scene readDxf(const std::string& path) {
     std::ifstream in(std::filesystem::u8path(path), std::ios::binary);
-    if (!in) throw std::runtime_error("Could not read DXF file.");
+    if (!in) throw std::runtime_error(tr8f("Could not read %1 file.", {"DXF"}));
     char magic[18] = {};
     in.read(magic, 18);
     if (std::string(magic, size_t(in.gcount())) == "AutoCAD Binary DXF")
-        throw std::runtime_error("Binary DXF files are not supported. Save the DXF as ASCII text.");
+        throw std::runtime_error(tr8("Binary DXF files are not supported. Save the DXF as ASCII text."));
     in.clear();
     in.seekg(0);
 
@@ -1088,12 +1546,12 @@ Scene readDxf(const std::string& path) {
         if (cs.empty()) continue;
         char* end = nullptr;
         const long code = std::strtol(cs.c_str(), &end, 10);
-        if (end == cs.c_str()) throw std::runtime_error("Not a valid DXF file.");
+        if (end == cs.c_str()) throw std::runtime_error(tr8f("Not a valid %1 file.", {"DXF"}));
         std::string value = trimmed(valueLine);
         if (code == 0) records.push_back({value, {}});
         else if (!records.empty()) records.back().data.push_back({int(code), std::move(value)});
     }
-    if (records.empty()) throw std::runtime_error("Not a valid DXF file.");
+    if (records.empty()) throw std::runtime_error(tr8f("Not a valid %1 file.", {"DXF"}));
 
     auto num = [](const DxfRecord& r, int code, double def = 0.0) {
         for (const DxfGroup& g : r.data)
@@ -1109,7 +1567,7 @@ Scene readDxf(const std::string& path) {
 
     Scene scene;
     SceneLines lines;
-    lines.name = "Lines";
+    lines.name = tr8("Lines");
     std::map<int, DxfMeshAcc> meshes;  // by colour index (0 = default colour)
     std::map<std::string, int> layerAci;
     std::map<std::string, int> skipped;
@@ -1296,16 +1754,16 @@ Scene readDxf(const std::string& path) {
     for (auto& kv : meshes) {
         DxfMeshAcc& acc = kv.second;
         if (acc.mesh.triangles.empty()) continue;
-        acc.mesh.name = kv.first == 0 ? "DXF mesh" : "DXF mesh (colour " + std::to_string(kv.first) + ")";
+        acc.mesh.name = kv.first == 0 ? tr8("DXF mesh") : tr8f("DXF mesh (colour %1)", {std::to_string(kv.first)});
         acc.mesh.hasColor = aciColor(kv.first, acc.mesh.color);
         scene.meshes.push_back(std::move(acc.mesh));
     }
     if (!lines.segments.empty()) scene.lines.push_back(std::move(lines));
 
     if (scene.meshes.empty() && scene.lines.empty()) {
-        std::string msg = "No drawable geometry found in this DXF.";
+        std::string msg = tr8("No drawable geometry found in this DXF.");
         if (!skipped.empty()) {
-            msg += " Unsupported entities:";
+            msg += std::string(" ") + tr8("Unsupported entities:");
             int shown = 0;
             for (const auto& kv : skipped) {
                 if (shown++ == 5) { msg += " ..."; break; }
@@ -1316,4 +1774,67 @@ Scene readDxf(const std::string& path) {
         throw std::runtime_error(msg);
     }
     return scene;
+}
+
+std::vector<std::string> zipModelEntries(const std::string& zipPath, const std::vector<std::string>& extensions) {
+    ZipFile zip(zipPath);
+    std::vector<std::string> out;
+    for (const ZipEntry& e : zip.entries) {
+        if (isJunkEntry(e.name)) continue;
+        if (std::find(extensions.begin(), extensions.end(), lowerExtension(e.name)) != extensions.end()) out.push_back(e.name);
+    }
+    return out;
+}
+
+std::string extractZipModel(const std::string& zipPath, const std::string& entry, const std::string& destDir,
+                            const std::vector<std::string>& modelExtensions, int* skipped) {
+    namespace fs = std::filesystem;
+    if (skipped) *skipped = 0;
+    ZipFile zip(zipPath);
+    const ZipEntry* model = nullptr;
+    for (const ZipEntry& e : zip.entries)
+        if (e.name == entry) model = &e;
+    if (!model) throw std::runtime_error(tr8("The model is no longer in the zip file."));
+
+    const fs::path dest = fs::u8path(destDir);
+    fs::create_directories(dest);
+    auto write = [&](const ZipEntry& e, const std::string& relative) {
+        const fs::path rel = fs::u8path(relative).lexically_normal();
+        if (rel.empty() || rel.is_absolute() || rel.has_root_name() || *rel.begin() == "..") return fs::path();  // unsafe name
+        const Bytes data = zip.read(e);
+        const fs::path target = dest / rel;
+        fs::create_directories(target.parent_path());
+        std::ofstream out(target, std::ios::binary | std::ios::trunc);
+        out.write(reinterpret_cast<const char*>(data.data()), std::streamsize(data.size()));
+        if (!out) throw std::runtime_error(tr8("The model could not be unpacked from the zip file."));
+        return target;
+    };
+
+    const size_t slash = entry.find_last_of('/');
+    const std::string folder = slash == std::string::npos ? std::string() : entry.substr(0, slash + 1);
+    const fs::path written = write(*model, entry.substr(folder.size()));
+    if (written.empty()) throw zip.invalid();
+
+    // OBJ, glTF and VRML files point to other files (materials, textures, buffers): unpack the files next to the model
+    // too, but not other models.
+    const std::string ext = lowerExtension(entry);
+    if (ext == "obj" || ext == "gltf" || ext == "wrl" || ext == "vrml") {
+        uint64_t total = 0;
+        for (const ZipEntry& e : zip.entries) {
+            if (&e == model || isJunkEntry(e.name) || e.name.compare(0, folder.size(), folder) != 0) continue;
+            if (std::find(modelExtensions.begin(), modelExtensions.end(), lowerExtension(e.name)) != modelExtensions.end())
+                continue;
+            total += e.usize;
+            if (total > (uint64_t(2) << 30)) break;  // 2 GB of extra files is more than any model needs
+            // A side file that cannot be written (a name Windows does not allow, a full disk, a damaged entry) only loses
+            // that texture/material; the caller says how many were skipped.
+            bool ok = false;
+            try {
+                ok = !write(e, e.name.substr(folder.size())).empty();
+            } catch (const std::exception&) {
+            }
+            if (!ok && skipped) ++*skipped;
+        }
+    }
+    return written.u8string();
 }

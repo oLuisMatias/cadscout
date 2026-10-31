@@ -1,10 +1,13 @@
 #include "Viewport.h"
 
+#include "Translate.h"
+
 #include <QMouseEvent>
 #include <QTimer>
 #include <QWheelEvent>
 #include <algorithm>
 #include <cmath>
+#include <map>
 
 namespace {
 const char* kMeshVert = R"(#version 330 core
@@ -22,6 +25,7 @@ void main() {
 const char* kMeshFrag = R"(#version 330 core
 in vec3 vNormal;
 uniform vec3 uColor;
+uniform float uAlpha = 1.0;
 out vec4 fragColor;
 void main() {
     vec3 n = normalize(vNormal);
@@ -29,7 +33,7 @@ void main() {
     vec3 l2 = normalize(vec3(-0.6, -0.2, 0.5));
     float d = abs(dot(n, l1)) * 0.65 + abs(dot(n, l2)) * 0.25;
     float s = pow(max(abs(n.z), 0.0), 24.0) * 0.12;
-    fragColor = vec4(uColor * (0.22 + d) + vec3(s), 1.0);
+    fragColor = vec4(uColor * (0.22 + d) + vec3(s), uAlpha);
 }
 )";
 
@@ -98,8 +102,8 @@ void Viewport::initializeGL() {
         !build(bgProg_, kBgVert, kBgFrag)) {
         const QString log = meshProg_.log() + lineProg_.log() + bgProg_.log();
         QTimer::singleShot(0, this, [this, log] {
-            emit graphicsFailed("The graphics driver could not prepare the 3D view, so models cannot be shown. Please "
-                                "update your graphics driver.\n\n" + log.left(400));
+            emit graphicsFailed(tx("The graphics driver could not prepare the 3D view, so models cannot be shown. Please "
+                                   "update your graphics driver.") + "\n\n" + log.left(400));
         });
     }
     bgVao_.create();
@@ -124,20 +128,168 @@ void Viewport::setDarkTheme(bool dark) {
     update();
 }
 
-void Viewport::setModel(std::shared_ptr<Model> model) {
+void Viewport::setPartHidden(int part, bool hide) {
+    if (!model_ || part < 0 || size_t(part) >= hidden_.size() || (hidden_[size_t(part)] == 1) == hide) return;
+    char& s = hidden_[size_t(part)];
+    if (s == 2) --transparentCount_;
+    hiddenWasTransparent_[size_t(part)] = hide && s == 2;  // shown again later, it is transparent again
+    s = hide ? 1 : 0;
+    hiddenCount_ += hide ? 1 : -1;
+    if (hide && selected_ == part) selectPart(-1);
+    update();
+}
+
+void Viewport::showOnlyPart(int part) {
+    if (!model_ || part < 0 || size_t(part) >= hidden_.size()) return;
+    for (size_t i = 0; i < hidden_.size(); ++i) hiddenWasTransparent_[i] = hidden_[i] == 2 || (hidden_[i] == 1 && hiddenWasTransparent_[i]);
+    // The part shown keeps its own look (a transparent part stays transparent).
+    const char keep = hiddenWasTransparent_[size_t(part)] ? 2 : 0;
+    std::fill(hidden_.begin(), hidden_.end(), char(1));
+    hidden_[size_t(part)] = keep;
+    hiddenWasTransparent_[size_t(part)] = 0;
+    hiddenCount_ = int(hidden_.size()) - 1;
+    transparentCount_ = keep == 2 ? 1 : 0;
+    if (selected_ != part) selectPart(-1);
+    update();
+}
+
+void Viewport::showAllParts() {
+    for (size_t i = 0; i < hidden_.size(); ++i) {
+        if (hidden_[i] != 1) continue;
+        hidden_[i] = hiddenWasTransparent_[i] ? 2 : 0;
+        if (hidden_[i] == 2) ++transparentCount_;
+        hiddenWasTransparent_[i] = 0;
+    }
+    hiddenCount_ = 0;
+    update();
+}
+
+void Viewport::setPartTransparent(int part, bool on) {
+    if (!model_ || part < 0 || size_t(part) >= hidden_.size()) return;
+    char& s = hidden_[size_t(part)];
+    if (s == 1 || (s == 2) == on) return;
+    s = on ? 2 : 0;
+    transparentCount_ += on ? 1 : -1;
+    if (on && selected_ == part) selectPart(-1);
+    update();
+}
+
+void Viewport::makeAllSolid() {
+    for (char& s : hidden_)
+        if (s == 2) s = 0;
+    std::fill(hiddenWasTransparent_.begin(), hiddenWasTransparent_.end(), char(0));
+    transparentCount_ = 0;
+    update();
+}
+
+void Viewport::setModel(std::shared_ptr<Model> model, bool keepView) {
+    // A reload of the same file keeps the hidden and transparent parts, found again by their names (the parts may come in
+    // another order, and parts can be added or removed). Any other model shows everything.
+    std::map<std::string, std::vector<std::pair<char, char>>> byName;  // name -> states, in the old order
+    if (keepView && model_ && model)
+        for (size_t i = 0; i < model_->parts.size() && i < hidden_.size(); ++i)
+            if (hidden_[i] != 0 || hiddenWasTransparent_[i]) byName[model_->parts[i].name].push_back({hidden_[i], hiddenWasTransparent_[i]});
+    // The clicked part stays selected too: found as the same name's n-th part.
+    std::string selName;
+    int selNth = -1;
+    if (keepView && model_ && model && selected_ >= 0 && size_t(selected_) < model_->parts.size()) {
+        selName = model_->parts[size_t(selected_)].name;
+        selNth = 0;
+        for (int i = 0; i < selected_; ++i) selNth += model_->parts[size_t(i)].name == selName ? 1 : 0;
+    }
     model_ = std::move(model);
+    const size_t count = model_ ? model_->parts.size() : 0;
+    hidden_.assign(count, char(0));
+    hiddenWasTransparent_.assign(count, char(0));
+    hiddenCount_ = 0;
+    transparentCount_ = 0;
+    std::map<std::string, size_t> used;  // parts with the same name take the old states in turn
+    for (size_t i = 0; i < count && !byName.empty(); ++i) {
+        const auto it = byName.find(model_->parts[i].name);
+        if (it == byName.end()) continue;
+        size_t& k = used[it->first];
+        if (k >= it->second.size()) continue;
+        hidden_[i] = it->second[k].first;
+        hiddenWasTransparent_[i] = it->second[k].second;
+        ++k;
+        hiddenCount_ += hidden_[i] == 1 ? 1 : 0;
+        transparentCount_ += hidden_[i] == 2 ? 1 : 0;
+    }
     wheelValid_ = false;
     selected_ = -1;
-    emit partSelected(-1);
+    for (size_t i = 0; selNth >= 0 && i < count; ++i)
+        if (model_->parts[i].name == selName && selNth-- == 0 && hidden_[i] != 1) selected_ = int(i);
+    emit partSelected(selected_);
     pendingUpload_ = true;
     rebuildPlates();  // also sets the centre and radius used by "Fit"
-    orientation_ = isoOrientation();
+    if (!keepView) orientation_ = isoOrientation();
     if (isValid()) {
         makeCurrent();
         uploadModel();
         doneCurrent();
     }
-    fitToView();
+    if (keepView) update();
+    else fitToView();
+}
+
+QImage Viewport::grabTransparentImage(int scale, bool* nothingVisible) {
+    if (nothingVisible) *nothingVisible = false;
+    if (!isValid() || !model_) return {};
+    makeCurrent();
+    // Bigger than the view, but within what the graphics card can make.
+    GLint maxSize = 4096;
+    glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &maxSize);
+    const qreal dpr = devicePixelRatioF();
+    const QSize base(int(width() * dpr), int(height() * dpr));
+    scale = std::max(1, scale);
+    while (scale > 1 && std::max(base.width(), base.height()) * scale > std::min(maxSize, 8192)) --scale;
+    const QSize size = base * scale;
+
+    QOpenGLFramebufferObjectFormat format;
+    format.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil);
+    format.setSamples(4);  // smooth edges
+    QImage image;
+    {
+        QOpenGLFramebufferObject fbo(size, format);
+        if (fbo.isValid()) {
+            const int keepSelected = selected_;
+            selected_ = -1;
+            transparentExport_ = true;
+            fbo.bind();
+            glViewport(0, 0, size.width(), size.height());
+            exportEdgeWidth_ = scale;  // edges keep their look at the bigger size (see renderScene)
+            exportSize_ = size;
+            renderScene();
+            exportEdgeWidth_ = 1;
+            fbo.release();
+            transparentExport_ = false;
+            selected_ = keepSelected;
+            image = fbo.toImage(true).convertToFormat(QImage::Format_ARGB32_Premultiplied);
+        }
+    }
+    doneCurrent();
+    update();
+    if (image.isNull()) return {};
+
+    // Crop to the model (every pixel that is not fully transparent) plus a small margin.
+    int left = image.width(), top = image.height(), right = -1, bottom = -1;
+    for (int y = 0; y < image.height(); ++y) {
+        const QRgb* row = reinterpret_cast<const QRgb*>(image.constScanLine(y));
+        for (int x = 0; x < image.width(); ++x) {
+            if (qAlpha(row[x]) == 0) continue;
+            left = std::min(left, x);
+            right = std::max(right, x);
+            top = std::min(top, y);
+            bottom = std::max(bottom, y);
+        }
+    }
+    if (right < left || bottom < top) {  // nothing visible (model moved out of the view, or all parts hidden)
+        if (nothingVisible) *nothingVisible = true;
+        return {};
+    }
+    const int margin = std::max(8, std::max(right - left, bottom - top) / 50);
+    const QRect crop = QRect(QPoint(left - margin, top - margin), QPoint(right + margin, bottom + margin)) & image.rect();
+    return image.copy(crop);
 }
 
 void Viewport::setPlateSettings(const PlateSettings& p) {
@@ -431,37 +583,74 @@ void Viewport::setViewDirection(const QVector3D& towardsCamera) {
     fitToView();
 }
 
-void Viewport::drawMeshes(const QMatrix4x4& mvp, const QMatrix4x4& view) {
+void Viewport::drawMeshes(const QMatrix4x4& mvp, const QMatrix4x4& view, bool transparentPass) {
+    if (transparentPass && transparentCount_ == 0) return;
     meshProg_.bind();
     meshProg_.setUniformValue("uMvp", mvp);
     meshProg_.setUniformValue("uNormalMat", view.normalMatrix());
-    for (auto& g : gpu_) {
-        meshProg_.setUniformValue("uColor", g->color);
-        g->vao.bind();
-        glDrawElements(GL_TRIANGLES, g->indexCount, GL_UNSIGNED_INT, nullptr);
-        g->vao.release();
+    meshProg_.setUniformValue("uAlpha", transparentPass ? 0.25f : 1.f);
+    const char want = transparentPass ? 2 : 0;
+    if ((hiddenCount_ == 0 && transparentCount_ == 0) || !model_) {  // all parts solid: one draw per colour
+        for (auto& g : gpu_) {
+            meshProg_.setUniformValue("uColor", g->color);
+            g->vao.bind();
+            glDrawElements(GL_TRIANGLES, g->indexCount, GL_UNSIGNED_INT, nullptr);
+            g->vao.release();
+        }
+    } else {  // some parts hidden or transparent: draw the wanted parts one by one
+        for (size_t i = 0; i < model_->parts.size(); ++i) {
+            if (hidden_[i] != want) continue;
+            for (const PartRange& r : model_->parts[i].ranges) {
+                GpuBatch& g = *gpu_[size_t(r.batch)];
+                meshProg_.setUniformValue("uColor", g.color);
+                g.vao.bind();
+                glDrawElements(GL_TRIANGLES, int(r.count), GL_UNSIGNED_INT,
+                               reinterpret_cast<void*>(uintptr_t(r.start) * sizeof(uint32_t)));
+                g.vao.release();
+            }
+        }
     }
+    meshProg_.setUniformValue("uAlpha", 1.f);
     meshProg_.release();
 }
 
-void Viewport::paintGL() {
+void Viewport::drawEdges() {
+    edgeVao_.bind();
+    if (hiddenCount_ == 0 || !model_) {
+        glDrawArrays(GL_LINES, 0, edgeVertexCount_);
+    } else {
+        for (size_t i = 0; i < model_->parts.size(); ++i)
+            if (hidden_[i] != 1 && model_->parts[i].edgeCount > 0)
+                glDrawArrays(GL_LINES, GLint(model_->parts[i].edgeFirst), GLsizei(model_->parts[i].edgeCount));
+    }
+    edgeVao_.release();
+}
+
+void Viewport::paintGL() { renderScene(); }
+
+void Viewport::renderScene() {
     if (pendingUpload_) uploadModel();
     if (platesDirty_) uploadPlates();
 
     const QVector3D top = dark_ ? QVector3D(0.17f, 0.19f, 0.23f) : QVector3D(0.96f, 0.97f, 0.99f);
     const QVector3D bottom = dark_ ? QVector3D(0.07f, 0.08f, 0.10f) : QVector3D(0.80f, 0.83f, 0.88f);
-    glClearColor(bottom.x(), bottom.y(), bottom.z(), 1.f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    if (transparentExport_) {
+        glClearColor(0.f, 0.f, 0.f, 0.f);  // nothing behind the model: its edges blend into transparent pixels
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    } else {
+        glClearColor(bottom.x(), bottom.y(), bottom.z(), 1.f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    glDisable(GL_DEPTH_TEST);
-    bgProg_.bind();
-    bgProg_.setUniformValue("uTop", top);
-    bgProg_.setUniformValue("uBottom", bottom);
-    bgVao_.bind();
-    glDrawArrays(GL_TRIANGLES, 0, 3);
-    bgVao_.release();
-    bgProg_.release();
-    glEnable(GL_DEPTH_TEST);
+        glDisable(GL_DEPTH_TEST);
+        bgProg_.bind();
+        bgProg_.setUniformValue("uTop", top);
+        bgProg_.setUniformValue("uBottom", bottom);
+        bgVao_.bind();
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        bgVao_.release();
+        bgProg_.release();
+        glEnable(GL_DEPTH_TEST);
+    }
 
     // Line-only models (a 2D DXF drawing) have no triangles but must still be drawn.
     const bool linesOnly = gpu_.empty();
@@ -473,7 +662,9 @@ void Viewport::paintGL() {
     glEnable(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(1.f, 1.f);
     drawMeshes(mvp, view);
-    if (selected_ >= 0 && model_ && size_t(selected_) < model_->parts.size()) {
+    // The selected part is highlighted, also when it is transparent (selected with a right click); hidden parts are not.
+    if (selected_ >= 0 && model_ && size_t(selected_) < model_->parts.size() &&
+        !(size_t(selected_) < hidden_.size() && hidden_[size_t(selected_)] == 1)) {
         glDepthFunc(GL_LEQUAL);
         meshProg_.bind();
         meshProg_.setUniformValue("uMvp", mvp);
@@ -496,16 +687,44 @@ void Viewport::paintGL() {
         lineProg_.bind();
         lineProg_.setUniformValue("uMvp", mvp);
         // Edges are dark outlines on the surfaces; line-only drawings have no surfaces, so they take the contrasting colour.
-        const QVector3D edgeColor = linesOnly ? (dark_ ? QVector3D(0.86f, 0.89f, 0.95f) : QVector3D(0.10f, 0.12f, 0.16f))
-                                              : (dark_ ? QVector3D(0.02f, 0.02f, 0.03f) : QVector3D(0.08f, 0.08f, 0.10f));
+        // The snapshot has no background and is usually pasted on white, so its drawings always get dark lines.
+        const QVector3D edgeColor = linesOnly
+                                        ? (dark_ && !transparentExport_ ? QVector3D(0.86f, 0.89f, 0.95f)
+                                                                        : QVector3D(0.10f, 0.12f, 0.16f))
+                                        : (dark_ ? QVector3D(0.02f, 0.02f, 0.03f) : QVector3D(0.08f, 0.08f, 0.10f));
         lineProg_.setUniformValue("uColor", edgeColor);
-        edgeVao_.bind();
-        glDrawArrays(GL_LINES, 0, edgeVertexCount_);
-        edgeVao_.release();
+        if (exportEdgeWidth_ <= 1) {
+            drawEdges();
+        } else {
+            // Thick edges for the bigger snapshot picture. The core OpenGL profile used here does not allow lines wider
+            // than one pixel (glLineWidth), so the edges are drawn several times, each shifted by one pixel.
+            const int w = exportEdgeWidth_;
+            for (int dy = 0; dy < w; ++dy) {
+                for (int dx = 0; dx < w; ++dx) {
+                    QMatrix4x4 shift;
+                    shift.translate(2.f * (dx - (w - 1) * 0.5f) / float(exportSize_.width()),
+                                    2.f * (dy - (w - 1) * 0.5f) / float(exportSize_.height()));
+                    lineProg_.setUniformValue("uMvp", shift * mvp);
+                    drawEdges();
+                }
+            }
+        }
         lineProg_.release();
     }
 
-    drawPlates(mvp);
+    // Transparent parts last: they blend over what is behind them without hiding it (no depth writes).
+    if (transparentCount_ > 0) {
+        glEnable(GL_BLEND);
+        // Colour blends by the part's opacity; the picture's own alpha is combined the "over" way, so the snapshot with a
+        // transparent background gets correct (premultiplied) pixels and solid parts behind stay fully opaque.
+        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE);
+        drawMeshes(mvp, view, true);
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+    }
+
+    if (!transparentExport_) drawPlates(mvp);
 }
 
 QVector3D Viewport::unproject(const QPoint& pos, float ndcZ) const {
@@ -516,7 +735,7 @@ QVector3D Viewport::unproject(const QPoint& pos, float ndcZ) const {
     return ok ? inv.map(QVector3D(x, y, ndcZ)) : target_;
 }
 
-bool Viewport::pickPoint(const QPoint& pos, QVector3D& world, int* part) {
+bool Viewport::pickPoint(const QPoint& pos, QVector3D& world, int* part, bool includeTransparent) {
     if (gpu_.empty()) return false;
     if (part) *part = -1;
     makeCurrent();
@@ -545,6 +764,8 @@ bool Viewport::pickPoint(const QPoint& pos, QVector3D& world, int* part) {
         lineProg_.bind();
         lineProg_.setUniformValue("uMvp", mvp);
         for (size_t i = 0; i < model_->parts.size(); ++i) {
+            // Hidden parts cannot be clicked; transparent ones only with a right click.
+            if (i < hidden_.size() && (hidden_[i] == 1 || (hidden_[i] == 2 && !includeTransparent))) continue;
             const uint32_t k = uint32_t(i) + 1;
             lineProg_.setUniformValue("uColor", QVector3D(float(k & 255) / 255.f, float((k >> 8) & 255) / 255.f,
                                                           float((k >> 16) & 255) / 255.f));
@@ -639,16 +860,26 @@ void Viewport::mousePressEvent(QMouseEvent* e) {
         pressPos_ = e->pos();
         leftPressed_ = true;
     }
+    if (e->button() == Qt::RightButton && (e->modifiers() & kModMask) == 0) {  // a click (not a drag) opens a menu
+        rightPressPos_ = e->pos();
+        rightPressed_ = true;
+    }
     if (drag_ != Drag::None) return;
-    if (matches(controls_.pan, e)) drag_ = Drag::Pan;
-    else if (matches(controls_.orbit, e)) drag_ = Drag::Orbit;
-    else if (matches(controls_.zoom, e)) drag_ = Drag::Zoom;
+    Drag mode = Drag::None;
+    if (matches(controls_.pan, e)) mode = Drag::Pan;
+    else if (matches(controls_.orbit, e)) mode = Drag::Orbit;
+    else if (matches(controls_.zoom, e)) mode = Drag::Zoom;
     else return;
     dragButton_ = e->button();
-    last_ = e->pos();
+    beginDrag(mode, e->pos());
+}
 
+// Starts (or switches to) a drag mode at `pos`: the point under the cursor becomes the pivot of an orbit or the depth of a pan.
+void Viewport::beginDrag(Drag mode, const QPoint& pos) {
+    drag_ = mode;
+    last_ = pos;
     QVector3D hit;
-    const bool found = drag_ != Drag::Zoom && pickPoint(e->pos(), hit);
+    const bool found = drag_ != Drag::Zoom && pickPoint(pos, hit);
     if (drag_ == Drag::Orbit) {
         pivot_ = found ? hit : center_;
     } else if (drag_ == Drag::Pan) {
@@ -659,6 +890,20 @@ void Viewport::mousePressEvent(QMouseEvent* e) {
 
 void Viewport::mouseMoveEvent(QMouseEvent* e) {
     if (drag_ == Drag::None) return;
+    // Pressing or releasing Shift/Ctrl/Alt while the button is held switches between orbit, pan and zoom, like in
+    // SolidWorks: the mode is the binding of the held button with the modifiers held right now.
+    if (dragButton_ != Qt::NoButton && (e->buttons() & dragButton_)) {
+        const Qt::KeyboardModifiers mods = e->modifiers() & kModMask;
+        auto fits = [&](const Binding& b) { return b.button == dragButton_ && Qt::KeyboardModifiers(b.modifier) == mods; };
+        Drag wanted = Drag::None;
+        if (fits(controls_.pan)) wanted = Drag::Pan;
+        else if (fits(controls_.orbit)) wanted = Drag::Orbit;
+        else if (fits(controls_.zoom)) wanted = Drag::Zoom;
+        if (wanted != Drag::None && wanted != drag_) {
+            beginDrag(wanted, e->pos());
+            return;  // the next move continues in the new mode, without a jump
+        }
+    }
     const QPoint d = e->pos() - last_;
     last_ = e->pos();
     switch (drag_) {
@@ -688,6 +933,18 @@ void Viewport::mouseReleaseEvent(QMouseEvent* e) {
     if (e->button() == Qt::LeftButton && leftPressed_) {
         leftPressed_ = false;
         if ((e->pos() - pressPos_).manhattanLength() < 4) selectAt(e->pos());
+    }
+    if (e->button() == Qt::RightButton && rightPressed_) {
+        rightPressed_ = false;
+        if ((e->pos() - rightPressPos_).manhattanLength() < 4) {
+            QVector3D world;
+            int part = -1;
+            // Like a left click the right click passes through transparent parts, so the solid parts behind them can be
+            // reached. Only where nothing solid is behind it does it reach the transparent part itself (to make it solid).
+            if (!model_ || !pickPoint(e->pos(), world, &part)) part = -1;
+            if (part < 0 && model_ && transparentCount_ > 0 && !pickPoint(e->pos(), world, &part, true)) part = -1;
+            emit contextRequested(part, e->pos());
+        }
     }
     if (e->button() == dragButton_) {
         drag_ = Drag::None;

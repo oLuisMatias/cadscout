@@ -8,6 +8,7 @@
 #include <QVBoxLayout>
 
 #include "SupportButtons.h"
+#include "Translate.h"
 
 #ifndef CADSCOUT_VERSION
 #define CADSCOUT_VERSION "dev"
@@ -26,7 +27,7 @@ AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent) {
 #else
     const QString appName = "CADscout Full";
 #endif
-    setWindowTitle("About CADscout");
+    setWindowTitle(tx("About CADscout"));
     resize(700, 580);
     setStyleSheet(
         "QDialog{background:palette(window);}"
@@ -41,33 +42,45 @@ AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent) {
     title->setStyleSheet("QLabel{font-size:26px;font-weight:bold;}");
     root->addWidget(title);
 
-    auto* version = new QLabel(QString("Version %1  ·  CAD and 3D print file viewer").arg(CADSCOUT_VERSION));
+    auto* version = new QLabel(tx("Version %1  ·  CAD and 3D print file viewer").arg(CADSCOUT_VERSION));
     version->setStyleSheet("QLabel{color:palette(placeholder-text);}");
     root->addWidget(version);
     root->addSpacing(8);
 
     auto* license = new QLabel(
-        "Free software under the MIT license. Copyright (c) 2026 CADscout contributors.\n"
-        "The license text is in the file LICENSE next to the program.");
+        tx("Free software under the MIT license. Copyright (c) 2026 CADscout contributors.\n"
+           "The license text is in the file LICENSE next to the program."));
     license->setWordWrap(true);
     root->addWidget(license);
 
+#ifdef CADSCOUT_LITE
+    // Opens the review window of the CADscout Lite page in the Microsoft Store (Store ID 9NM96BXSNB6V).
+    const QString linkColor = palette().color(QPalette::Window).lightness() < 128 ? "#2f9bff" : "#0a7ae0";
     auto* early = new QLabel(
-        "<b>Early version.</b> CADscout has not been tested with many files yet. If a file does not open correctly, "
-        "or you have an idea, please leave a review in the Microsoft Store.");
+        tx("<b>Early version.</b> CADscout has not been tested with many files yet. If a file does not open correctly, "
+           "or you have an idea, please %1.")
+            .arg("<a href=\"ms-windows-store://review/?ProductId=9NM96BXSNB6V\"><span style=\"color:" + linkColor + ";\">" +
+                 tx("leave a review in the Microsoft Store") + "</span></a>"));
+    early->setOpenExternalLinks(true);
+#else
+    auto* early = new QLabel(
+        tx("<b>Early version.</b> CADscout has not been tested with many files yet. If a file does not open correctly, "
+           "or you have an idea, please %1.")
+            .arg(tx("leave a review in the Microsoft Store")));
+#endif
     early->setWordWrap(true);
     root->addSpacing(4);
     root->addWidget(early);
 
-    auto* support = new QLabel("Support CADscout (it is free; nothing is unlocked in return):");
+    auto* support = new QLabel(tx("Support CADscout (it is free; nothing is unlocked in return):"));
     support->setWordWrap(true);
     root->addSpacing(4);
     root->addWidget(support);
     root->addWidget(new SupportButtons);
 
     auto* credits = new QLabel(
-        "CADscout is built with Qt (LGPL v3), Open CASCADE Technology (LGPL 2.1 with exception) and other "
-        "open-source libraries. Their licenses:");
+        tx("CADscout is built with Qt (LGPL v3), Open CASCADE Technology (LGPL 2.1 with exception) and other "
+           "open-source libraries. Their licenses:"));
     credits->setWordWrap(true);
     root->addSpacing(4);
     root->addWidget(credits);
@@ -83,5 +96,6 @@ AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent) {
     auto* box = new QDialogButtonBox(QDialogButtonBox::Close);
     connect(box, &QDialogButtonBox::rejected, this, &QDialog::reject);
     box->button(QDialogButtonBox::Close)->setDefault(true);
+    box->button(QDialogButtonBox::Close)->setText(tx("Close"));
     root->addWidget(box);
 }

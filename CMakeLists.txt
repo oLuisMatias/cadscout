@@ -32,6 +32,14 @@ set(CADSCOUT_SOURCES
   src/ViewCube.cpp
   src/ViewCube.h
   src/StepLoader.cpp
+  src/ModelCache.cpp
+  src/ClipboardImage.cpp
+  src/ClipboardImage.h
+  src/InfoPanel.cpp
+  src/InfoPanel.h
+  src/InfoSection.h
+  src/Translate.cpp
+  src/Translate.h
   src/StepLoader.h
   src/ExtraFormats.cpp
   src/ExtraFormats.h

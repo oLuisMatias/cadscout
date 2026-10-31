@@ -24,8 +24,10 @@ Not a software engineer: explain results in plain language and avoid jargon.
 A Windows desktop app for viewing 3D CAD models (STEP and other formats). Written in C++17 with Qt 6 (window/UI)
 and OpenCASCADE 8 (reads CAD files and turns surfaces into triangles). Libraries come from vcpkg (`vcpkg.json`,
 `vcpkg_installed/`). The same source builds two apps:
-- **CADscoutFull.exe** – normal window with toolbar, assembly tree (T), edges toggle (E), home view (H), fit (F),
-  settings.
+- **CADscoutFull.exe** – frameless window like Lite (no Windows title bar: own top bar with the app name "CAD**scout**" at the
+  left (Lite: "CAD**scout** Lite"; "scout" in blue, bold, `MainWindow::updateBrand`; no "Full" in the name on purpose) and the open file's name in the
+  middle, min/max/close buttons, resize grips, drag/double-click on the empty bar; the shared code is in `MainWindow.cpp`
+  `buildWindowControls`/`TitleLabel`), text toolbar, assembly tree (T), edges toggle (E), home view (H), fit (F), settings.
 - **CADscoutLite.exe** (built with `CADSCOUT_LITE`) – minimal frameless window with its own min/max/close
   buttons and resize grips, icon-only toolbar, no tree, perspective toggle, and an **Open in Full** button that
   launches `CADscoutFull.exe` from the same folder.
@@ -40,6 +42,8 @@ How it works:
 - `Viewport` – OpenGL drawing, camera (orbit/pan/zoom, perspective/orthographic), click-to-select a part
   (picking via an off-screen buffer), gradient background, light/dark theme.
 - `ViewCube` – clickable orientation cube in the corner (Z is up).
+- Mouse drags (both apps): the mode (orbit / pan / zoom) is re-checked on every mouse move (`Viewport::mouseMoveEvent`), so pressing
+  or releasing Shift/Ctrl/Alt while the button is held switches mode at once, as in SolidWorks (`beginDrag` re-sets the pivot).
 - `Controls.h` – mouse bindings ("CAD" default: middle = orbit, shift+middle = pan, right = zoom; or "classic"),
   saved with QSettings.
 - `SettingsDialog` – searchable settings for mouse controls and mesh quality.
@@ -79,8 +83,8 @@ the MSIX packages are made from.
 - First release: **Lite only** (Full follows later; Lite's "Open in Full" says "CADscout Full is coming soon").
 - **Donation buttons** (Buy Me a Coffee, Ko-fi): shown in Settings (first category "Support", the page Settings opens on) and
   in the About window, via `src/SupportButtons.cpp`; their web addresses are the two constants in `src/Support.h`
-  (currently EMPTY: the buttons say "not set up yet"). TODO when the pages exist: fill in the addresses, add a Support
-  section with the links to README.md and a `.github/FUNDING.yml`. Store rules (read in the official Microsoft Store Policies
+  (set; an empty address would make the button say "not set up yet"). The same links are in README.md (Support section)
+  and `.github/FUNDING.yml` (GitHub "Sponsor" button): keep the three in sync. Store rules (read in the official Microsoft Store Policies
   7.20, section 10.8.2): plain donations through a third-party payment service are allowed, also by opening the browser after
   install, as long as donors get NOTHING in return (no features, no ad removal; that would require the Store's own in-app
   purchase), the provider is named on the button, it is not presented as charity, and "uses a third-party payment service"
@@ -95,7 +99,9 @@ the MSIX packages are made from.
 - **No personal details in the repository**: commits use the anonymous identity `CADscout <noreply@cadscout.invalid>`
   (set locally in this repo on purpose; do not change it) and sample files/commit messages/docs must not contain the
   user's name, email, Windows user name or local paths. `tools/make_sample.cpp` already writes "CADscout" as the IGES
-  author. The repository address contains the GitHub account name; that cannot be avoided.
+  author. The repository address contains the GitHub account name; that cannot be avoided. Accepted exceptions (public
+  anyway): the donation page names in `src/Support.h`, README.md and `.github/FUNDING.yml`, and the Partner Center publisher
+  values in `msix/AppxManifest.xml` (Identity Name, PublisherDisplayName). Add no other personal details.
 - **Commit only when the user asks.** Use short plain messages and end them with the attribution line from the session
   instructions. Never push anywhere unless asked.
 - **The version number lives only in `vcpkg.json` (`version-string`, x.y.z).** CMake reads it from there: the apps show it in
@@ -106,6 +112,30 @@ the MSIX packages are made from.
 - Current version: see `vcpkg.json`.
 
 ## Notes
+- Model cache (both apps, `src/ModelCache.*`, Settings page "Cache"): loads that took at least the "Minimum load time" (1-30 s,
+  default 3 s, `cache/minSeconds`) are saved as finished models
+  (triangles, edges, tree) in `%LOCALAPPDATA%\CADscout\<app>\cache\models`, key = path + size + modification time + quality +
+  app version (entries of other versions are deleted), default limit 2 GB (500 MB / 1 GB / 2 GB / 5 GB, QSettings `cache/enabled`,
+  `cache/limitMb`), least recently used deleted first, the newest entry is always kept. Measured: 24 MB STEP -> 25 MB entry,
+  56 MB -> 62 MB, 94 MB -> 147 MB; reopening takes about 0.01 s plus drawing. The status bar says "(from cache)". "Open cache folder" (`ModelCache::openFolder`)
+  looks up the folder's real place first (`GetFinalPathNameByHandleW`, backup: `%LOCALAPPDATA%\Packages\<family>\LocalCache\Local\...`
+  via `GetCurrentPackageFamilyName`), because in the Store package Windows redirects AppData and Explorer cannot see the path
+  the app uses. Not yet tested inside the package. If `Model` or
+  the stored layout changes, change the magic (now `CSC4`) in `ModelCache.cpp`.
+- Project information panel (both apps; `InfoPanel`, `InfoSection.h`, built in `read3mf`/`describeProject` in `ExtraFormats.cpp`): a
+  small tab at the top right of the view (key I, Esc closes) opens a side panel with the 3MF's own information in foldable sections:
+  Project (application, dates, title, designer, ...), Printer, Print profile (from `project_settings.config`), Filaments (type,
+  vendor, profile, diameter, density, cost, bed temperature, used or not), Plates, Objects (folded at first), Slicing result (sliced
+  files: time, weight, filament use per plate, warnings; otherwise "not sliced"). The panel and its tab always keep the mouse wheel
+  (`WheelKeepingBrowser`, event filter on the tab), so scrolling at the end of the list never zooms the model behind it.
+  Only 3MF files with such data have the tab. Arrays
+  with several entries per filament (e.g. `nozzle_temperature` on the P2S) are skipped. The slicing result keys
+  (`<filament used_m used_g>`, `<warning>`) are only tested on `samples/sample_bambu_synthetic.3mf`, not on a real sliced file.
+- STEP loading speed (`StepLoader.cpp`): OpenCASCADE's built-in shape repair (87% of the translate time, one core) is switched off
+  and `Builder::healParts` runs the same default repair for every distinct part on all cores, then carries the face colours over.
+  Needs `Runtime.Tolerance` (set to 1e-5 mm). Results match the old path within ~0.02% of faces. `CADSCOUT_TIMING=1` prints the
+  time of each stage; `make_sample.exe out.stp --heavy N` writes a big test STEP. Tried and dropped: adding only pcurves
+  (curved faces then fail to mesh).
 - Source in `src/`, helper tool in `tools/make_sample.cpp` (writes sample.stp/.igs/.brep/.stl).
 - All test models live in `samples/` (one per format: stp, igs, brep, stl, obj+mtl, ply, wrl). Keep new sample
   files there. To regenerate: `build\Release\make_sample.exe samples\sample.stp`.
@@ -166,8 +196,61 @@ the MSIX packages are made from.
   file's folder (`browseFolder`, natural name order, wraps around; QSettings `browse/arrowKeys`, default on, switch in Settings >
   General); a small arrow right of Open lists the last 8 files (`recentFiles`, `showRecentMenu`, deleted files are dropped);
   the window size/position is remembered (`window/geometry`, saved in `closeEvent`); the status bar ends with the model size
-  "W x D x H" (unit "mm" only for stp/step/igs/iges/brep/3mf/stl). Test registry values live under
+  "W x D x H" (unit "mm" only for stp/step/igs/iges/brep/3mf/stl). A clicked part shows its own size instead
+  (`partSizeText`); files with several print plates show no overall size, because the box around all plates belongs to no part.
+  Also Lite-only: Ctrl+C / camera button in the corner panel copies the view as a picture with a transparent background (no
+  background, plates or highlight; drawn offscreen at 3 times the view size with 4x multisampling and cropped to the model
+  plus a small margin, so it is sharp and has no empty border; `Viewport::grabTransparentImage`, `ClipboardImage` writes a PNG by hand because Qt here has no
+  PNG support, put on the clipboard as "PNG" + CF_DIBV5 with alpha; programs that read only a plain bitmap show their own
+  background); F5 reloads the file keeping the camera, and the file is watched (`QFileSystemWatcher`) and reloaded by itself
+  once it has stopped changing (Settings > General, `browse/autoReload`; a failed reload keeps the old model, no pop-up);
+  right-click on the empty top bar, or the small arrow right of the file name (so new users find it; both open
+  `showBarMenu`): Reload File, Show in Folder, Copy File Path, Snapshot, Open in New Window
+  (Ctrl+N: choose a file, a second program window starts with `--new-window`, offset 40 px); Settings > General "Size units"
+  mm / inch (`display/inches`, inches only where the file's unit is mm). Test registry values live under
   `HKCU:\Software\CADscout\CADscout Lite` (QSettings turns "a/b" into a sub-key); delete test values afterwards.
+- Languages (Lite): English, Portuguese (Portugal), German, Spanish, Slovak. `src/Translate.*`: all visible texts are written in
+  English in the code and wrapped in `tx("...")` (Qt) or `tr8`/`tr8f` (loader, std::string); the table `kTable` in `Translate.cpp`
+  holds the translations (empty = English). Plurals: `plural(n, "%1 object", "%1 objects")`; Slovak 2-4 uses the key
+  "<many>|few". Setting Settings > General > Language (`ui/language`, 0 = like Windows), applied at the next start in `main.cpp`
+  (Full stays English). The model cache key includes the language (part names/info are stored translated). When adding a text,
+  add it to the table; `python check_tr.py src` (scratch tool, keep the idea) checked that every key exists and placeholders match.
+  Not translated: the Explorer right-click entry, the third-party licence texts, values copied from files.
+- Loading progress (Lite): a card at the bottom of the view (after 0.5 s) shows the stage (`LoadProgress` in `StepLoader.h`:
+  reading, translating, repairing, meshing, preparing) and a percentage for STEP (OpenCASCADE reports through `LoadIndicator`;
+  the parallel repair counts parts); Cancel or Esc sets `cancel`, the loader throws `LoadCancelled` at the next check and the
+  previous model stays.
+- Hide parts (Lite): right click (without dragging) in the view opens a menu (the part is highlighted while it is open): Hide, Show Only,
+  Make Transparent / Make Solid, Show All, Make All Solid (`Viewport::contextRequested`, `setPartHidden`, `showOnlyPart`, `showAllParts`,
+  `setPartTransparent`, `makeAllSolid`; per-part state in `Viewport::hidden_`: 0 solid, 1 hidden, 2 transparent). Hidden parts are not
+  drawn, picked or copied; their edges are skipped through `Part::edgeFirst/edgeCount`. Transparent parts are drawn last at 25 %
+  opacity without writing depth; clicks (left and right) pass through them to the solid parts behind. Only where no
+  solid part is behind does a right click reach the transparent part itself (`pickPoint(..., includeTransparent)`), and
+  the menu then offers "Make Solid" instead of "Make Transparent" (a version where the right click always hit the
+  transparent part was rejected: the parts behind could no longer be right-clicked). A global X-ray (all parts, X key) existed
+  briefly and was replaced by this on the user's request.
+- Zip files (Lite): a .zip opens the model inside it (Open dialog, drag-and-drop, command line, recent list). One model: opened
+  directly; several: a menu in the middle of the view asks which (`chooseZipEntry`); none: a message. The chosen model is
+  unpacked on the loader thread to `%TEMP%\CADscout\zip\<hash of zip path + entry>\` with the zip's modification time, so
+  an unchanged zip reuses the copy and the model cache recognises it (`unpackZipModel`; folders unused for 7 days are removed).
+  OBJ/glTF/VRML also get the other files of their archive folder (materials, textures, buffers); side files that cannot be
+  written are skipped, counted in a `<folder>.skipped` note and named in the status bar. A zip model chosen while another load
+  runs opens when it ends (`pendingZip_`). "Open in Full" passes the already unpacked copy (`sourceFile_`). The top bar shows
+  "parts.zip › model.stp"; reload/auto-reload keep the chosen model (`zipEntry_`); arrow-key browsing skips zips; units come
+  from the inner file. Zip reading (`ZipFile`, `zipModelEntries`, `extractZipModel` in `ExtraFormats.cpp`) reads only the
+  needed parts of the archive; stored and deflate entries, no zip64 (>4 GB), no passwords. Entry names without the UTF-8
+  flag are converted from the PC's DOS code page (`zipNameToUtf8`). 3MF projects use the same `ZipFile` reader.
+- Review fixes (Lite review): a file that fails to open restores `currentFile_` (the menus, F5 and the watcher keep acting on
+  the model still shown) and remembers it in `browseFrom_` so the arrow keys step past it; the snapshot draws thick edges by
+  drawing them several times one pixel apart (core OpenGL has no wide lines) and blends transparent parts with
+  `glBlendFuncSeparate` so its alpha is right; cache temp files are named per process and only stale ones (15 min) are deleted.
+  Final review: closing the window cancels a running load; a reload keeps hidden/transparent parts and the selected part, matched by part name; a reload compares against the
+  file's size/time from when the load started (`startSize_`), so a save during a load is reloaded afterwards
+  (`Viewport::setModel`), and the info panel keeps its open sections and scroll position (`InfoPanel::setSections(.., reload)`);
+  a hidden transparent part comes back transparent (`hiddenWasTransparent_`); only the Description goes through `htmlToText`; the open info panel pushes the corner buttons and the loading card to its left; snapshots of
+  line-only drawings always use dark lines; HTML entities of website descriptions are decoded (`htmlToText`); Qt's own
+  English right-click menus are off in the info panel and the Settings search; icons are redrawn on a display-scale change
+  (`MainWindow::event`); `.brp` is no longer accepted (it was in no list).
 - Modern look of lists/menus/number boxes/message boxes: `src/ModernStyle.h` (app-wide stylesheet `modernStyleSheet()` set in
   `main.cpp`; `ModernComboBox` and `ModernDoubleSpinBox` draw thin chevron arrows themselves, because Qt stylesheet arrow images
   need an SVG plugin that is not shipped; `roundMenu()` for popup menus). Use these classes for any new dropdown or number box.
@@ -183,9 +266,11 @@ the MSIX packages are made from.
   path; the icon is the exe's (`CADscoutLite.exe,0`). Declaring one ItemType per extension was tried first: Windows showed it only
   for some types (not .stp/.step/.iges/.brep/.vrml/.gltf/.glb), `*` + GetState works for all.
 - MSIX build (Lite, version 0.2.0 = first release to publish): run `build_all.bat`, then `build_msix.bat` -> `build\CADscoutLite.msix`
-  (unsigned; the Store signs it). Manifest: `msix/AppxManifest.xml` (placeholders Identity Name `CADscout.Lite` / Publisher
-  `CN=CADscout`: replace with the values from Partner Center "Product identity" before upload; `@VERSION@` becomes x.y.z.0),
-  tile images `msix/Assets/` (made from `resources/logo/app-icon-lite.png`). `makeappx` validated the manifest, but the package
+  (unsigned; the Store signs it). Manifest: `msix/AppxManifest.xml` (Identity Name / Publisher / PublisherDisplayName are the Partner
+  Center "Product identity" values and must match them exactly; `@VERSION@` becomes x.y.z.0),
+  tile images `msix/Assets/` (made from `resources/logo/app-icon-lite.png`). The manifest declares the app languages
+  (en-us, pt-pt, de-de, es-es, sk-sk) so the Store lists them; Partner Center then needs a store listing for each (the
+  English text may be reused). `makeappx` validated the manifest, but the package
   was tested on this PC by registering the unpacked folder (Developer Mode on; `Add-AppxPackage -Register build\msix_stage\AppxManifest.xml`,
   remove with `Get-AppxPackage CADscout.Lite | Remove-AppxPackage`, needed before rebuilding): Start menu entry, running as a package, "Open with",
   double-click as default, and the right-click entry with icon for all 14 types (classic menu, Windows 11) work; the entry is hidden for .txt.

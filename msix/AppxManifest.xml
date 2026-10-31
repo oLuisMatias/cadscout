@@ -30,8 +30,14 @@
                        Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" />
   </Dependencies>
 
+  <!-- The languages of the app (Settings > General > Language). The Store lists them on the app page; Partner Center then
+       asks for a store listing in each of them. -->
   <Resources>
     <Resource Language="en-us" />
+    <Resource Language="pt-pt" />
+    <Resource Language="de-de" />
+    <Resource Language="es-es" />
+    <Resource Language="sk-sk" />
   </Resources>
 
   <Applications>

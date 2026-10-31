@@ -20,8 +20,10 @@
 #include <functional>
 
 #include "Icons.h"
+#include "ModelCache.h"
 #include "ModernStyle.h"
 #include "SupportButtons.h"
+#include "Translate.h"
 
 namespace {
 
@@ -70,7 +72,7 @@ public:
     static constexpr int kRowHeight = 30, kHeaderHeight = 36;
 
     BindingTable() : QTableWidget(0, 5) {
-        setHorizontalHeaderLabels({"", "Command", "Keybinding", "When", "Source"});
+        setHorizontalHeaderLabels({QString(), tx("Command"), tx("Keybinding"), tx("When"), tx("Source")});
         verticalHeader()->hide();
         verticalHeader()->setDefaultSectionSize(kRowHeight);
         horizontalHeader()->setFixedHeight(kHeaderHeight);
@@ -196,7 +198,7 @@ const Qt::KeyboardModifier kMods[] = {Qt::NoModifier, Qt::ShiftModifier, Qt::Con
 
 SettingsDialog::SettingsDialog(const Controls& initial, int meshQuality, const PlateSettings& plate, QWidget* parent)
     : QDialog(parent) {
-    setWindowTitle("Settings");
+    setWindowTitle(tx("Settings"));
     resize(900, 600);
     setStyleSheet(
         "QDialog{background:palette(window);}"
@@ -218,8 +220,9 @@ SettingsDialog::SettingsDialog(const Controls& initial, int meshQuality, const P
     root->setSpacing(14);
 
     search_ = new QLineEdit;
-    search_->setPlaceholderText("Search settings");
+    search_->setPlaceholderText(tx("Search settings"));
     search_->setClearButtonEnabled(true);
+    search_->setContextMenuPolicy(Qt::NoContextMenu);  // Qt's own menu (Undo, Paste, ...) is English only; Ctrl+V still works
     root->addWidget(search_);
 
     auto* body = new QHBoxLayout;
@@ -242,14 +245,15 @@ SettingsDialog::SettingsDialog(const Controls& initial, int meshQuality, const P
     body->addWidget(scroll, 1);
     root->addLayout(body, 1);
 
-    const int supportCat = addCategory("Support");  // first category = the page Settings opens on
+    const int supportCat = addCategory(tx("Support"));  // first category = the page Settings opens on
 #ifdef CADSCOUT_LITE
-    const int generalCat = addCategory("General");
+    const int generalCat = addCategory(tx("General"));
 #endif
-    const int controlsCat = addCategory("Controls");
-    const int shortcutsCat = addCategory("Shortcuts");
-    const int meshCat = addCategory("Mesh quality");
-    const int plateCat = addCategory("Print plate");
+    const int controlsCat = addCategory(tx("Controls"));
+    const int shortcutsCat = addCategory(tx("Shortcuts"));
+    const int meshCat = addCategory(tx("Mesh quality"));
+    const int plateCat = addCategory(tx("Print plate"));
+    const int cacheCat = addCategory(tx("Cache"));
     buildSupportItems(supportCat);
 #ifdef CADSCOUT_LITE
     buildGeneralItems(generalCat);
@@ -258,13 +262,16 @@ SettingsDialog::SettingsDialog(const Controls& initial, int meshQuality, const P
     buildShortcutItems(shortcutsCat);
     buildMeshItems(meshCat, meshQuality);
     buildPlateItems(plateCat, plate);
+    buildCacheItems(cacheCat);
 
-    empty_ = new QLabel("No settings found.");
+    empty_ = new QLabel(tx("No settings found."));
     empty_->setStyleSheet("QLabel{color:palette(placeholder-text);}");
     itemsLayout_->addWidget(empty_);
     itemsLayout_->addStretch(1);
 
     auto* box = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
+    box->button(QDialogButtonBox::Save)->setText(tx("Save"));
+    box->button(QDialogButtonBox::Cancel)->setText(tx("Cancel"));
     connect(box, &QDialogButtonBox::accepted, this, &SettingsDialog::accept);
     connect(box, &QDialogButtonBox::rejected, this, &SettingsDialog::reject);
     // Footer: app name and version on the left, Save / Cancel on the right.
@@ -342,16 +349,39 @@ void SettingsDialog::addWide(int category, const QString& description, QWidget* 
 
 void SettingsDialog::buildSupportItems(int cat) {
     addWide(cat,
-            "CADscout is free software. If it is useful to you, you can support its development with a donation.\n\n"
-            "You pay on the donation website, in your browser. CADscout never sees your payment details, and "
-            "nothing is unlocked in return.",
+            tx("CADscout is free software. If it is useful to you, you can support its development with a donation.\n\n"
+               "You pay on the donation website, in your browser. CADscout never sees your payment details, and "
+               "nothing is unlocked in return."),
             new SupportButtons, "support donate donation coffee buy me a coffee ko-fi kofi tip thanks free");
 }
 
 void SettingsDialog::buildGeneralItems(int cat) {
-    arrows_ = new FlatCheckBox("Left / Right arrow keys open the previous / next model in the same folder");
+    arrows_ = new FlatCheckBox(tx("Left / Right arrow keys open the previous / next model in the same folder"));
     arrows_->setChecked(QSettings().value("browse/arrowKeys", true).toBool());
-    addItem(cat, "Browse files", "Turn this off if you do not want the arrow keys to change the model.", arrows_);
+    addItem(cat, tx("Browse files"), tx("Turn this off if you do not want the arrow keys to change the model."), arrows_);
+
+    reload_ = new FlatCheckBox(tx("Reload the model when its file changes"));
+    reload_->setChecked(QSettings().value("browse/autoReload", true).toBool());
+    addItem(cat, tx("Reload"),
+            tx("Useful when you export a model from a CAD or slicer program and keep CADscout open: the view updates by "
+            "itself a moment after the file has been saved, and the camera stays where it is. F5 reloads by hand."),
+            reload_);
+
+    units_ = new ModernComboBox;
+    units_->addItems({tx("Millimetres (mm)"), tx("Inches (in)")});
+    units_->setCurrentIndex(QSettings().value("display/inches", false).toBool() ? 1 : 0);
+    units_->setFixedWidth(220);
+    addItem(cat, tx("Size units"),
+            tx("The unit of the sizes in the status bar. Inches only apply to files whose unit is known to be "
+            "millimetres (STEP, IGES, BREP, STL, 3MF); other files show their numbers as they are."),
+            units_);
+
+    // Each language is written in its own language, so it can be found whatever language is shown now.
+    language_ = new ModernComboBox;
+    language_->addItems({tx("Automatic (Windows language)"), "English", "Português", "Deutsch", "Español", "Slovenčina"});
+    language_->setCurrentIndex(std::clamp(QSettings().value("ui/language", 0).toInt(), 0, 5));
+    language_->setFixedWidth(260);
+    addItem(cat, tx("Language"), tx("The language of CADscout. It changes the next time CADscout starts."), language_);
 }
 
 void SettingsDialog::buildControlsItems(int cat) {
@@ -359,56 +389,62 @@ void SettingsDialog::buildControlsItems(int cat) {
     auto* row = new QHBoxLayout(presets);
     row->setContentsMargins(0, 0, 0, 0);
     row->setSpacing(8);
-    auto* cad = new QPushButton("CAD (middle = orbit)");
-    auto* classic = new QPushButton("Classic (left = orbit)");
+    auto* cad = new QPushButton(tx("CAD (middle = orbit)"));
+    auto* classic = new QPushButton(tx("Classic (left = orbit)"));
     row->addWidget(cad);
     row->addWidget(classic);
     connect(cad, &QPushButton::clicked, this, [this] { apply(Controls::cad()); });
     connect(classic, &QPushButton::clicked, this, [this] { apply(Controls::classic()); });
-    addItem(cat, "Preset", "Start from a ready-made mouse layout, then change single bindings in the table below.", presets);
+    addItem(cat, tx("Preset"), tx("Start from a ready-made mouse layout, then change single bindings in the table below."), presets);
 
     // The bindings are kept in these (hidden) boxes; the table shows them and the pencil edits them.
     for (int i = 0; i < 3; ++i) {
         button_[i] = new ModernComboBox(this);
-        button_[i]->addItems({"Left", "Middle", "Right"});
+        button_[i]->addItems({tx("Left"), tx("Middle"), tx("Right")});
         button_[i]->hide();
         modifier_[i] = new ModernComboBox(this);
-        modifier_[i]->addItems({"None", "Shift", "Ctrl", "Alt"});
+        modifier_[i]->addItems({tx("None"), "Shift", "Ctrl", "Alt"});
         modifier_[i]->hide();
     }
 
     auto* table = new BindingTable;
     controlsTable_ = table;
     const char* names[3] = {"Orbit", "Pan", "Zoom (drag)"};
-    for (int i = 0; i < 3; ++i) table->addRow(names[i], {}, "3D view", "Default", true);
-    table->addRow("Zoom (wheel)", {"Mouse Wheel"}, "3D view", "Built-in", false);
-    table->addRow("Select part / plate", {"Left Button"}, "3D view", "Built-in", false);
+    for (int i = 0; i < 3; ++i) table->addRow(tx(names[i]), {}, tx("3D view"), tx("Default"), true);
+    table->addRow(tx("Zoom (wheel)"), {tx("Mouse Wheel")}, tx("3D view"), tx("Built-in"), false);
+    table->addRow(tx("Select part / plate"), {tx("Left Button")}, tx("3D view"), tx("Built-in"), false);
     table->onEdit = [this](int r) {
         if (r < 3) editBinding(r);
     };
-    addWide(cat, "Mouse controls of the 3D view. Click the pencil to change a binding.", table,
+    addWide(cat, tx("Mouse controls of the 3D view. Click the pencil to change a binding."), table,
             "orbit pan zoom wheel mouse select part plate bindings", table);
 
-    invert_ = new FlatCheckBox("Reverse the direction of mouse wheel zoom");
-    addItem(cat, "Invert wheel", QString(), invert_);
+    invert_ = new FlatCheckBox(tx("Reverse the direction of mouse wheel zoom"));
+    addItem(cat, tx("Invert wheel"), QString(), invert_);
 }
 
 void SettingsDialog::buildShortcutItems(int cat) {
     auto* table = new BindingTable;
-    table->addRow("Open model", {"Ctrl", "O"}, "Anywhere", "Built-in", false);
-    table->addRow("Fit to view", {"F"}, "Anywhere", "Built-in", false);
+    table->addRow(tx("Open model"), {"Ctrl", "O"}, tx("Anywhere"), tx("Built-in"), false);
+    table->addRow(tx("Fit to view"), {"F"}, tx("Anywhere"), tx("Built-in"), false);
 #ifdef CADSCOUT_LITE
-    table->addRow("Next file in folder", {"Right"}, "Model loaded", "Built-in", false);
-    table->addRow("Previous file in folder", {"Left"}, "Model loaded", "Built-in", false);
+    table->addRow(tx("Next file in folder"), {"→"}, tx("Model loaded"), tx("Built-in"), false);
+    table->addRow(tx("Previous file in folder"), {"←"}, tx("Model loaded"), tx("Built-in"), false);
+    table->addRow(tx("Snapshot"), {"Ctrl", "C"}, tx("Model loaded"), tx("Built-in"), false);
+    table->addRow(tx("Reload file"), {"F5"}, tx("Model loaded"), tx("Built-in"), false);
+    table->addRow(tx("Open in new window"), {"Ctrl", "N"}, tx("Anywhere"), tx("Built-in"), false);
+    table->addRow(tx("Cancel loading"), {"Esc"}, tx("While a file loads"), tx("Built-in"), false);
+    table->addRow(tx("Hide a part, make it transparent"), {tx("Right Button")}, tx("Click on a part"), tx("Built-in"), false);
 #endif
 #ifndef CADSCOUT_LITE
-    table->addRow("Show / hide edges", {"E"}, "Anywhere", "Built-in", false);
-    table->addRow("Home view", {"H"}, "Anywhere", "Built-in", false);
-    table->addRow("Show / hide assembly tree", {"T"}, "Anywhere", "Built-in", false);
+    table->addRow(tx("Show / hide edges"), {"E"}, tx("Anywhere"), tx("Built-in"), false);
+    table->addRow(tx("Home view"), {"H"}, tx("Anywhere"), tx("Built-in"), false);
+    table->addRow(tx("Show / hide assembly tree"), {"T"}, tx("Anywhere"), tx("Built-in"), false);
 #endif
-    table->addRow("About CADscout", {"F1"}, "Anywhere", "Built-in", false);
-    table->addRow("Close the info popup", {"Esc"}, "Anywhere", "Built-in", false);
-    addWide(cat, "Keyboard shortcuts of the viewer. They are fixed and cannot be changed.", table,
+    table->addRow(tx("Show / hide project information"), {"I"}, tx("3MF project loaded"), tx("Built-in"), false);
+    table->addRow(tx("About CADscout"), {"F1"}, tx("Anywhere"), tx("Built-in"), false);
+    table->addRow(tx("Close the info popup"), {"Esc"}, tx("Anywhere"), tx("Built-in"), false);
+    addWide(cat, tx("Keyboard shortcuts of the viewer. They are fixed and cannot be changed."), table,
             "keyboard keys shortcuts open fit edges home tree popup", table);
 }
 
@@ -424,17 +460,17 @@ void SettingsDialog::refreshControlsTable() {
         const int b = button_[i]->currentIndex(), m = modifier_[i]->currentIndex();
         QStringList keys;
         if (m > 0) keys << modifierNames[m];
-        keys << buttonNames[b];
+        keys << tx(buttonNames[b]);
         table->setKeys(i, keys);
         const bool isDefault = kButtons[b] == defs[i]->button && kMods[m] == defs[i]->modifier;
-        table->item(i, 4)->setText(isDefault ? "Default" : "Custom");
+        table->item(i, 4)->setText(isDefault ? tx("Default") : tx("Custom"));
     }
 }
 
 void SettingsDialog::editBinding(int i) {
     static const char* names[3] = {"Orbit", "Pan", "Zoom (drag)"};
     QDialog dlg(this);
-    dlg.setWindowTitle(QString("Change binding: %1").arg(names[i]));
+    dlg.setWindowTitle(tx("Change binding: %1").arg(tx(names[i])));
     auto* v = new QVBoxLayout(&dlg);
     v->setContentsMargins(18, 16, 18, 16);
     v->setSpacing(14);
@@ -442,17 +478,19 @@ void SettingsDialog::editBinding(int i) {
     form->setHorizontalSpacing(16);
     form->setVerticalSpacing(10);
     auto* b = new ModernComboBox;
-    b->addItems({"Left", "Middle", "Right"});
+    b->addItems({tx("Left"), tx("Middle"), tx("Right")});
     b->setCurrentIndex(button_[i]->currentIndex());
     b->setFixedWidth(200);
     auto* m = new ModernComboBox;
-    m->addItems({"None", "Shift", "Ctrl", "Alt"});
+    m->addItems({tx("None"), "Shift", "Ctrl", "Alt"});
     m->setCurrentIndex(modifier_[i]->currentIndex());
     m->setFixedWidth(200);
-    form->addRow("Mouse button", b);
-    form->addRow("Modifier key", m);
+    form->addRow(tx("Mouse button"), b);
+    form->addRow(tx("Modifier key"), m);
     v->addLayout(form);
     auto* box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    box->button(QDialogButtonBox::Ok)->setText(tx("OK"));
+    box->button(QDialogButtonBox::Cancel)->setText(tx("Cancel"));
     connect(box, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
     connect(box, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     v->addWidget(box);
@@ -465,25 +503,94 @@ void SettingsDialog::editBinding(int i) {
 
 void SettingsDialog::buildMeshItems(int cat, int quality) {
     quality_ = new ModernComboBox;
-    quality_->addItems({"Fast", "Balanced", "High quality"});
+    quality_->addItems({tx("Fast"), tx("Balanced"), tx("High quality")});
     quality_->setFixedWidth(220);
     quality_->setCurrentIndex(std::clamp(quality, 0, 2));
-    addItem(cat, "Quality",
-            "Fast: coarser curves, lowest memory and quickest loading. Balanced: good looking curves at a reasonable "
+    addItem(cat, tx("Quality"),
+            tx("Fast: coarser curves, lowest memory and quickest loading. Balanced: good looking curves at a reasonable "
             "load time. High quality: very smooth curves, slower loading and more memory. "
-            "Applies to files opened after saving.",
+            "Applies to files opened after saving."),
             quality_);
+}
+
+void SettingsDialog::buildCacheItems(int cat) {
+    cacheOn_ = new FlatCheckBox(tx("Remember big models so they open faster next time"));
+    cacheOn_->setChecked(ModelCache::enabled());
+    addItem(cat, tx("Remember models"),
+            tx("Models that take a while to load are saved in a folder of this app on your computer. "
+            "When you open the same, unchanged file again it opens in a moment. The saved data never leaves your "
+            "computer, and it is deleted when you uninstall the app."),
+            cacheOn_);
+
+    cacheMin_ = new ModernComboBox;
+    const double times[] = {1, 2, 3, 5, 10, 20, 30};
+    for (double t : times) cacheMin_->addItem(t == 1 ? tx("1 second") : plural(qlonglong(t), "1 second", "%1 seconds"), t);
+    const double minNow = ModelCache::minLoadSeconds();
+    int minIndex = 2;
+    for (int i = 0; i < 7; ++i)
+        if (times[i] <= minNow) minIndex = i;
+    cacheMin_->setCurrentIndex(minIndex);
+    cacheMin_->setFixedWidth(220);
+    addItem(cat, tx("Minimum load time"),
+            tx("A model is only saved when opening it took at least this long. Models that open faster are not worth "
+            "saving, and leaving them out keeps the saved data small."),
+            cacheMin_);
+
+    cacheLimit_ = new ModernComboBox;
+    const int limits[] = {500, 1024, 2048, 5120};
+    const char* names[] = {"500 MB", "1 GB", "2 GB", "5 GB"};
+    for (int i = 0; i < 4; ++i) cacheLimit_->addItem(names[i], limits[i]);
+    const int current = ModelCache::limitMegabytes();
+    int best = 1;
+    for (int i = 0; i < 4; ++i)
+        if (limits[i] <= current) best = i;
+    cacheLimit_->setCurrentIndex(best);
+    cacheLimit_->setFixedWidth(220);
+    addItem(cat, tx("Size limit"),
+            tx("When the saved models use more space than this, the ones you opened longest ago are deleted first."),
+            cacheLimit_);
+
+    // Buttons on one line, the size below them: side by side they are too wide in the longer languages.
+    auto* clear = new QWidget;
+    auto* column = new QVBoxLayout(clear);
+    column->setContentsMargins(0, 0, 0, 0);
+    column->setSpacing(8);
+    auto* row = new QHBoxLayout;
+    row->setContentsMargins(0, 0, 0, 0);
+    row->setSpacing(12);
+    auto* button = new QPushButton(tx("Clear cache now"));
+    auto* size = new QLabel;
+    auto showSize = [size] {
+        const double mb = double(ModelCache::sizeBytes()) / (1024.0 * 1024.0);
+        size->setText(tx("Used now: %1 MB").arg(mb, 0, 'f', mb < 10 ? 1 : 0));
+    };
+    showSize();
+    connect(button, &QPushButton::clicked, this, [showSize] {
+        ModelCache::clear();
+        showSize();
+    });
+    auto* openFolder = new QPushButton(tx("Open cache folder"));
+    connect(openFolder, &QPushButton::clicked, this, [this] {
+        if (!ModelCache::openFolder())
+            QMessageBox::warning(this, "CADscout", tx("The cache folder could not be opened."));
+    });
+    row->addWidget(button);
+    row->addWidget(openFolder);
+    row->addStretch(1);
+    column->addLayout(row);
+    column->addWidget(size);
+    addItem(cat, tx("Saved models"), tx("This takes effect at once, without pressing Save."), clear);
 }
 
 void SettingsDialog::buildPlateItems(int cat, const PlateSettings& plate) {
     plateMode_ = new ModernComboBox;
-    plateMode_->addItems({"Automatic (from the file)", "Custom size", "Hidden"});
+    plateMode_->addItems({tx("Automatic (from the file)"), tx("Custom size"), tx("Hidden")});
     plateMode_->setFixedWidth(220);
     plateMode_->setCurrentIndex(int(plate.mode));
-    addItem(cat, "Plate",
-            "Automatic: Bambu Studio and Orca Slicer files show the printer bed stored in the file, one per plate; "
+    addItem(cat, tx("Plate"),
+            tx("Automatic: Bambu Studio and Orca Slicer files show the printer bed stored in the file, one per plate; "
             "other files show no plate. Custom size: always show one plate of the size below, centred under the "
-            "model. Hidden: never show a plate.",
+            "model. Hidden: never show a plate."),
             plateMode_);
 
     auto* size = new QWidget;
@@ -496,18 +603,19 @@ void SettingsDialog::buildPlateItems(int cat, const PlateSettings& plate) {
         spin->setDecimals(0);
         spin->setSuffix(" mm");
         spin->setButtonSymbols(QAbstractSpinBox::NoButtons);
+        spin->setContextMenuPolicy(Qt::NoContextMenu);  // Qt's own menu is English only
         spin->setFixedWidth(100);
         spin->setValue(value);
         return spin;
     };
     plateWidth_ = makeSpin(plate.width);
     plateDepth_ = makeSpin(plate.depth);
-    row->addWidget(new QLabel("Width"));
+    row->addWidget(new QLabel(tx("Width")));
     row->addWidget(plateWidth_);
     row->addSpacing(10);
-    row->addWidget(new QLabel("Depth"));
+    row->addWidget(new QLabel(tx("Depth")));
     row->addWidget(plateDepth_);
-    addItem(cat, "Custom size", "Plate width (X) and depth (Y) in millimetres. Used when Plate is set to Custom size.", size);
+    addItem(cat, tx("Custom size"), tx("Plate width (X) and depth (Y) in millimetres. Used when Plate is set to Custom size."), size);
 
     auto updateEnabled = [this] {
         const bool custom = plateMode_->currentIndex() == int(PlateSettings::Mode::Custom);
@@ -538,13 +646,25 @@ void SettingsDialog::refresh() {
         it.widget->setVisible(visible);
         shown += visible ? 1 : 0;
     }
-    heading_->setText(words.isEmpty() ? categoryNames_.value(cat) : QString("Search results"));
+    heading_->setText(words.isEmpty() ? categoryNames_.value(cat) : tx("Search results"));
     empty_->setVisible(shown == 0);
 }
 
 bool SettingsDialog::browseWithArrows() const { return arrows_ ? arrows_->isChecked() : true; }
 
+bool SettingsDialog::autoReload() const { return reload_ ? reload_->isChecked() : true; }
+
+bool SettingsDialog::useInches() const { return units_ ? units_->currentIndex() == 1 : false; }
+
+int SettingsDialog::languageSetting() const { return language_ ? language_->currentIndex() : 0; }
+
 int SettingsDialog::meshQuality() const { return quality_->currentIndex(); }
+
+bool SettingsDialog::cacheEnabled() const { return cacheOn_ ? cacheOn_->isChecked() : true; }
+
+int SettingsDialog::cacheLimitMegabytes() const { return cacheLimit_ ? cacheLimit_->currentData().toInt() : 2048; }
+
+double SettingsDialog::cacheMinSeconds() const { return cacheMin_ ? cacheMin_->currentData().toDouble() : 3.0; }
 
 PlateSettings SettingsDialog::plateSettings() const {
     PlateSettings p;
@@ -584,7 +704,7 @@ void SettingsDialog::accept() {
     for (int i = 0; i < 3; ++i)
         for (int j = i + 1; j < 3; ++j)
             if (all[i]->button == all[j]->button && all[i]->modifier == all[j]->modifier) {
-                QMessageBox::warning(this, "Conflict", "Two actions use the same button and modifier.");
+                QMessageBox::warning(this, tx("Conflict"), tx("Two actions use the same button and modifier."));
                 return;
             }
     QDialog::accept();

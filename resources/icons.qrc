@@ -10,6 +10,8 @@
     <file alias="minus.svg">icons/minus.svg</file>
     <file alias="square.svg">icons/square.svg</file>
     <file alias="copy.svg">icons/copy.svg</file>
+    <file alias="camera.svg">icons/camera.svg</file>
+    <file alias="printer.svg">icons/printer.svg</file>
     <file alias="x.svg">icons/x.svg</file>
     <file alias="check.svg">icons/check.svg</file>
     <file alias="pencil.svg">icons/pencil.svg</file>
@@ -19,5 +21,13 @@
     <file alias="external-link.svg">icons/external-link.svg</file>
     <file alias="perspective.svg">icons/perspective.svg</file>
     <file alias="perspective-off.svg">icons/perspective-off.svg</file>
+    <file alias="eye.svg">icons/eye.svg</file>
+    <file alias="eye-off.svg">icons/eye-off.svg</file>
+    <file alias="target.svg">icons/target.svg</file>
+    <file alias="layers-intersect.svg">icons/layers-intersect.svg</file>
+    <file alias="refresh.svg">icons/refresh.svg</file>
+    <file alias="app-window.svg">icons/app-window.svg</file>
+    <file alias="clipboard.svg">icons/clipboard.svg</file>
+    <file alias="folder.svg">icons/folder.svg</file>
   </qresource>
 </RCC>

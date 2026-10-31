@@ -1,6 +1,7 @@
 #include "StepLoader.h"
 
 #include "ExtraFormats.h"
+#include "Translate.h"
 
 #include <algorithm>
 #include <array>
@@ -26,7 +27,16 @@
 #include <IFSelect_ReturnStatus.hxx>
 #include <IGESCAFControl_Reader.hxx>
 #include <Geom_Surface.hxx>
+#include <IMeshTools_Parameters.hxx>
+#include <Message_ProgressIndicator.hxx>
 #include <Message_ProgressRange.hxx>
+#include <Message_ProgressScope.hxx>
+#include <OSD_Parallel.hxx>
+#include <ShapeProcess.hxx>
+#include <TopExp.hxx>
+#include <XSAlgo_ShapeProcessor.hxx>
+#include <ShapeProcess_ShapeContext.hxx>
+#include <unordered_map>
 #include <Poly_PolygonOnTriangulation.hxx>
 #include <Poly_Triangle.hxx>
 #include <Poly_Triangulation.hxx>
@@ -76,8 +86,35 @@ struct PartMeta {
     std::vector<FilamentUse> filaments;
 };
 
+// ---- Progress and cancelling (LoadProgress is read by the window)
+
+void setStage(LoadProgress* p, LoadStage stage, float fraction) {
+    if (!p) return;
+    p->stage = int(stage);
+    p->fraction = fraction;
+}
+
+void checkCancel(const LoadProgress* p) {
+    if (p && p->cancel.load()) throw LoadCancelled();
+}
+
+// Passes OpenCASCADE's own progress on (as the part `from`..`to` of the whole load) and stops it when Cancel was pressed.
+class LoadIndicator : public Message_ProgressIndicator {
+public:
+    LoadIndicator(LoadProgress* p, float from, float to) : p_(p), from_(from), to_(to) {}
+    bool UserBreak() override { return p_ && p_->cancel.load(); }
+    void Show(const Message_ProgressScope&, const bool) override {
+        if (p_) p_->fraction = from_ + (to_ - from_) * float(std::clamp(GetPosition(), 0.0, 1.0));
+    }
+
+private:
+    LoadProgress* p_;
+    float from_, to_;
+};
+
 struct Builder {
     Model& model;
+    LoadProgress* progress = nullptr;
     const std::map<int, PartMeta>* partMeta = nullptr;
     handle<XCAFDoc_ShapeTool> shapes;
     handle<XCAFDoc_ColorTool> colors;
@@ -85,6 +122,8 @@ struct Builder {
     std::map<uint32_t, size_t> batchIndex;
     bool hasBounds = false;
     bool splitFaceCompounds = false;  // a compound made only of faces becomes one part per face
+    std::map<int, TopoDS_Shape> healed;                   // see healParts: part label tag -> repaired shape
+    std::unordered_map<const void*, Color> healedColors;  // see healParts: repaired face -> its own colour
 
     Builder(Model& m) : model(m) {}
 
@@ -113,10 +152,153 @@ struct Builder {
         return !materials.IsNull() && materialColor(materials->GetShapeMaterial(s), out);
     }
 
+    bool isPartLabel(const TDF_Label& l) const { return l.Father() == shapes->Label(); }
+
+    // STEP files are translated without OpenCASCADE's shape repair, because the repair runs on one core, one part after
+    // another, and takes most of the load time. Here every distinct part is repaired with the same default repair, all
+    // parts at once on all cores (parts share no edges). The face colours are read from the document first and handed
+    // to the repaired faces, which are new objects. Returns the bounding box of the whole model.
+    Bnd_Box healParts(const TDF_LabelSequence& roots) {
+        struct Task {
+            TDF_Label label;
+            TopoDS_Shape shape, result;
+            std::vector<std::pair<TopoDS_Shape, Color>> colours;      // before the repair
+            std::vector<std::pair<const void*, Color>> healedColours;  // after the repair
+            Bnd_Box box;
+        };
+        std::vector<Task> tasks;
+        std::map<int, size_t> taskOf;
+        std::function<void(const TDF_Label&)> gather = [&](const TDF_Label& l) {
+            if (shapes->IsAssembly(l)) {
+                TDF_LabelSequence comps;
+                shapes->GetComponents(l, comps);
+                for (int i = 1; i <= comps.Length(); ++i) {
+                    TDF_Label ref;
+                    if (!shapes->GetReferredShape(comps.Value(i), ref)) ref = comps.Value(i);
+                    gather(ref);
+                }
+                return;
+            }
+            if (!isPartLabel(l) || taskOf.count(l.Tag())) return;
+            Task t;
+            t.label = l;
+            t.shape = shapes->GetShape(l);
+            if (t.shape.IsNull()) return;
+            TopTools_IndexedMapOfShape faces;
+            TopExp::MapShapes(t.shape, TopAbs_FACE, faces);
+            for (int f = 1; f <= faces.Extent(); ++f) {
+                TDF_Label sub;
+                Color c;
+                if (shapes->FindSubShape(l, faces(f), sub) && labelColor(sub, c)) t.colours.push_back({faces(f), c});
+            }
+            taskOf[l.Tag()] = tasks.size();
+            tasks.push_back(std::move(t));
+        };
+        for (int i = 1; i <= roots.Length(); ++i) gather(roots.Value(i));
+
+        auto defaults = XSAlgo_ShapeProcessor::ReadProcessingData("read.step.resource.name", "read.step.sequence");
+        // The reader normally passes the precision of the file (in mm) here. Without it the repair behaves slightly differently
+        // (a few faces failed to mesh); any value from 1e-7 to 1e-3 gave the same faces, so a fixed small one is used.
+        defaults.first.Bind("Runtime.Tolerance", "1e-5");
+        defaults.first.Bind("Runtime.MaxTolerance", "1");
+        std::atomic<int> done{0};
+        const float taskCount = float(std::max<size_t>(tasks.size(), 1));
+        LoadProgress* const progressOut = progress;
+        OSD_Parallel::ForEach(
+            tasks.begin(), tasks.end(),
+            [&defaults, &done, taskCount, progressOut](Task& t) {
+                if (progressOut && progressOut->cancel.load()) {  // Cancel pressed: skip the remaining parts quickly
+                    t.result = t.shape;
+                    return;
+                }
+                if (progressOut) progressOut->fraction = 0.30f + 0.40f * float(done.load()) / taskCount;
+                try {
+                    XSAlgo_ShapeProcessor processor(defaults.first);
+                    t.result = processor.ProcessShape(t.shape, defaults.second, Message_ProgressRange());
+                    if (t.result.IsNull()) t.result = t.shape;
+                    const auto context = processor.GetContext();
+                    for (const auto& coloured : t.colours) {
+                        TopoDS_Shape now = coloured.first;
+                        if (!context.IsNull())  // the map is not recursive: follow it until the face is no longer replaced
+                            for (int hop = 0; hop < 8 && context->Map().IsBound(now); ++hop) now = context->Map().Find(now);
+                        for (TopExp_Explorer ex(now, TopAbs_FACE); ex.More(); ex.Next())
+                            t.healedColours.push_back({ex.Current().TShape().get(), coloured.second});
+                    }
+                } catch (...) {  // a part that cannot be repaired is used as it is
+                    t.result = t.shape;
+                    t.healedColours.clear();
+                    for (const auto& coloured : t.colours) t.healedColours.push_back({coloured.first.TShape().get(), coloured.second});
+                }
+                BRepBndLib::Add(t.result, t.box, false);
+                ++done;
+            },
+            false, int(tasks.size()));
+        checkCancel(progress);
+
+        for (Task& t : tasks) {
+            healed[t.label.Tag()] = t.result;
+            for (const auto& hc : t.healedColours) healedColors[hc.first] = hc.second;
+        }
+        Bnd_Box total;
+        std::function<void(const TDF_Label&, const TopLoc_Location&)> extend = [&](const TDF_Label& l,
+                                                                                    const TopLoc_Location& loc) {
+            if (shapes->IsAssembly(l)) {
+                TDF_LabelSequence comps;
+                shapes->GetComponents(l, comps);
+                for (int i = 1; i <= comps.Length(); ++i) {
+                    TDF_Label ref;
+                    if (!shapes->GetReferredShape(comps.Value(i), ref)) ref = comps.Value(i);
+                    extend(ref, loc * XCAFDoc_ShapeTool::GetLocation(comps.Value(i)));
+                }
+                return;
+            }
+            const auto it = isPartLabel(l) ? taskOf.find(l.Tag()) : taskOf.end();
+            if (it != taskOf.end()) {
+                if (!tasks[it->second].box.IsVoid()) total.Add(tasks[it->second].box.Transformed(loc.Transformation()));
+            } else if (!shapes->GetShape(l).IsNull()) {
+                BRepBndLib::Add(shapes->GetShape(l).Moved(loc), total, true);
+            }
+        };
+        for (int i = 1; i <= roots.Length(); ++i) extend(roots.Value(i), TopLoc_Location());
+        return total;
+    }
+
+    // All repaired parts as one shape, so they can be meshed together.
+    TopoDS_Shape healedCompound() const {
+        BRep_Builder builder;
+        TopoDS_Compound all;
+        builder.MakeCompound(all);
+        for (const auto& h : healed) builder.Add(all, h.second);
+        return all;
+    }
+
+    // Colour of one face of `shape` (the shape of `partLabel`). Searching the whole document for the face (shapeColor)
+    // gets slower with every part, so a face is only looked up among the sub-shapes of its own part. A part that is
+    // itself one face (mesh formats such as glTF) keeps the document-wide search: its colour can sit on another label.
+    bool faceColor(const TDF_Label& partLabel, const TopoDS_Shape& shape, const TopoDS_Face& face, Color& out) const {
+        if (!healedColors.empty()) {
+            const auto it = healedColors.find(face.TShape().get());
+            if (it != healedColors.end()) {
+                out = it->second;
+                return true;
+            }
+        }
+        TDF_Label sub;
+        if (shapes->FindSubShape(partLabel, face, sub)) return labelColor(sub, out);
+        return face.IsSame(shape) && shapeColor(face, out);
+    }
+
     static bool materialColor(const handle<XCAFDoc_VisMaterial>& m, Color& out) {
         if (m.IsNull() || m->IsEmpty()) return false;
         out = toDisplay(m->BaseColor().GetRGB());
         return true;
+    }
+
+    // Room for `extra` more elements. Plain reserve(size + extra) would reallocate and copy the whole vector for every
+    // face, which made big models load in quadratic time, so the capacity at least doubles.
+    template <class V>
+    static void reserveMore(V& v, size_t extra) {
+        if (v.capacity() < v.size() + extra) v.reserve(std::max(v.size() + extra, v.capacity() * 2));
     }
 
     MeshBatch& batchFor(const Color& c) {
@@ -194,7 +376,7 @@ struct Builder {
         const float cosCrease = std::cos(40.f * 3.14159265f / 180.f);
         const uint32_t base = uint32_t(b.vertices.size() / 6);
         const size_t idxStart = b.indices.size();
-        b.vertices.reserve(b.vertices.size() + size_t(nTri) * 18);
+        reserveMore(b.vertices, size_t(nTri) * 18);
         for (int t = 0; t < nTri; ++t) {
             float ut[3];
             unit(t, ut);
@@ -272,7 +454,7 @@ struct Builder {
         }
         addPartRange(b, idxStart);
 
-        b.vertices.reserve(b.vertices.size() + size_t(nNodes) * 6);
+        reserveMore(b.vertices, size_t(nNodes) * 6);
         for (int i = 0; i < nNodes; ++i) {
             float* n = &nrm[size_t(i) * 3];
             float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
@@ -351,7 +533,7 @@ struct Builder {
 
         if (shapes->IsAssembly(label)) {
             std::string asmName = !nameHint.empty() ? nameHint : labelName(label);
-            if (asmName.empty()) asmName = "Assembly";
+            if (asmName.empty()) asmName = tr8("Assembly");
             model.nodes.push_back({asmName, parentNode, -1});
             const int thisNode = int(model.nodes.size()) - 1;
             TDF_LabelSequence comps;
@@ -369,7 +551,9 @@ struct Builder {
             return;
         }
 
-        TopoDS_Shape shape = shapes->GetShape(label);
+        TopoDS_Shape shape;
+        const auto repaired = isPartLabel(label) ? healed.find(label.Tag()) : healed.end();
+        shape = repaired != healed.end() ? repaired->second : shapes->GetShape(label);
         if (shape.IsNull()) return;
 
         if (splitFaceCompounds && shape.ShapeType() == TopAbs_COMPOUND) {
@@ -381,12 +565,12 @@ struct Builder {
             }
             if (onlyFaces && faces.size() > 1) {
                 std::string groupName = !nameHint.empty() ? nameHint : labelName(label);
-                if (groupName.empty()) groupName = "Scene";
+                if (groupName.empty()) groupName = tr8("Scene");
                 model.nodes.push_back({groupName, parentNode, -1});
                 const int groupNode = int(model.nodes.size()) - 1;
                 for (const TopoDS_Face& face : faces) {
                     Part p;
-                    p.name = "Shape " + std::to_string(model.parts.size() + 1);
+                    p.name = tr8f("Shape %1", {std::to_string(model.parts.size() + 1)});
                     model.nodes.push_back({p.name, groupNode, int(model.parts.size())});
                     model.parts.push_back(std::move(p));
                     Color c = own;
@@ -399,7 +583,7 @@ struct Builder {
 
         Part part;
         part.name = !nameHint.empty() ? nameHint : labelName(label);
-        if (part.name.empty()) part.name = "Part " + std::to_string(model.parts.size() + 1);
+        if (part.name.empty()) part.name = tr8f("Part %1", {std::to_string(model.parts.size() + 1)});
         if (partMeta && label.Father() == shapes->Label()) {
             const auto meta = partMeta->find(label.Tag());
             if (meta != partMeta->end()) {
@@ -412,11 +596,14 @@ struct Builder {
         for (TopExp_Explorer fe(shape, TopAbs_FACE); fe.More(); fe.Next()) {
             const TopoDS_Face& face = TopoDS::Face(fe.Current());
             Color c = own;
-            shapeColor(face, c);
+            faceColor(label, shape, face, c);
             addFace(face, loc, c);
         }
+        const size_t edgeStart = model.edges.size() / 3;
         addEdges(shape, loc);
         addFreeEdges(shape, loc);
+        model.parts.back().edgeFirst = uint32_t(edgeStart);
+        model.parts.back().edgeCount = uint32_t(model.edges.size() / 3 - edgeStart);
     }
 };
 
@@ -458,7 +645,7 @@ Format formatOf(const std::string& path) {
     const std::string e = lowerExtension(path);
     if (e == "stp" || e == "step") return Format::Step;
     if (e == "igs" || e == "iges") return Format::Iges;
-    if (e == "brep" || e == "brp") return Format::Brep;
+    if (e == "brep") return Format::Brep;  // same list as src/Formats.h, the Store manifest and the right-click entry
     if (e == "stl") return Format::Stl;
     if (e == "obj") return Format::Obj;
     if (e == "ply") return Format::Ply;
@@ -468,10 +655,10 @@ Format formatOf(const std::string& path) {
     if (e == "dxf") return Format::Dxf;
     if (e == "sldprt" || e == "sldasm")
         throw std::runtime_error(
-            "SolidWorks files (.sldprt / .sldasm) can't be opened directly, because SolidWorks keeps the format "
-            "closed.\n\nIn SolidWorks, use File > Save As > STEP (*.step), then open that STEP file here.");
-    throw std::runtime_error("Unsupported file type" + (e.empty() ? std::string() : " \"." + e + "\"") +
-                             ". Supported: STEP, IGES, BREP, STL, OBJ, PLY, VRML, glTF/GLB, 3MF and DXF.");
+            tr8("SolidWorks files (.sldprt / .sldasm) can't be opened directly, because SolidWorks keeps the format "
+                "closed.\n\nIn SolidWorks, use File > Save As > STEP (*.step), then open that STEP file here."));
+    throw std::runtime_error(tr8f("Unsupported file type%1. Supported: STEP, IGES, BREP, STL, OBJ, PLY, VRML, glTF/GLB, 3MF and DXF.",
+                                  {e.empty() ? std::string() : " \"." + e + "\""}));
 }
 
 std::string baseName(const std::string& path) {
@@ -488,7 +675,7 @@ void setLabelName(const TDF_Label& label, const std::string& path) {
 // Wraps a triangulation in a face so the mesh formats go through the same builder as B-rep models.
 void addMeshShape(const handle<XCAFDoc_ShapeTool>& shapes, const handle<Poly_Triangulation>& tri,
                   const std::string& path) {
-    if (tri.IsNull() || tri->NbTriangles() == 0) throw std::runtime_error("The file contains no triangles.");
+    if (tri.IsNull() || tri->NbTriangles() == 0) throw std::runtime_error(tr8("The file contains no triangles."));
     BRep_Builder bb;
     TopoDS_Face face;
     bb.MakeFace(face, tri);
@@ -518,7 +705,7 @@ std::map<int, PartMeta> addScene(const handle<XCAFDoc_ShapeTool>& shapes, const 
         if (!m.objectName.empty() || m.filament > 0) {
             PartMeta pm;
             pm.object = m.objectName;
-            if (m.filament > 0) pm.filaments.push_back({m.filament, m.hasColor, m.color, m.filamentType});
+            if (m.filament > 0) pm.filaments.push_back({m.filament, m.hasColor, m.color, m.filamentType, m.filamentVendor});
             partMeta[label.Tag()] = std::move(pm);
         }
         TDataStd_Name::Set(label, TCollection_ExtendedString(m.name.c_str(), true));
@@ -605,11 +792,11 @@ double plyDecode(const char* src, const std::string& t, bool swap) {
 
 handle<Poly_Triangulation> readPly(const std::string& path) {
     std::ifstream in(std::filesystem::u8path(path), std::ios::binary);
-    if (!in) throw std::runtime_error("Could not read PLY file.");
+    if (!in) throw std::runtime_error(tr8f("Could not read %1 file.", {"PLY"}));
 
     std::string line;
     std::getline(in, line);
-    if (line.rfind("ply", 0) != 0) throw std::runtime_error("Not a valid PLY file.");
+    if (line.rfind("ply", 0) != 0) throw std::runtime_error(tr8f("Not a valid %1 file.", {"PLY"}));
 
     enum { Ascii, BinLE, BinBE } mode = Ascii;
     std::vector<PlyElement> elements;
@@ -644,19 +831,19 @@ handle<Poly_Triangulation> readPly(const std::string& path) {
             break;
         }
     }
-    if (!ended) throw std::runtime_error("Not a valid PLY file.");
+    if (!ended) throw std::runtime_error(tr8f("Not a valid %1 file.", {"PLY"}));
 
     const bool swap = mode == BinBE;  // the host is little-endian
     auto next = [&](const std::string& type) -> double {
         if (mode == Ascii) {
             double v = 0;
-            if (!(in >> v)) throw std::runtime_error("Unexpected end of PLY file.");
+            if (!(in >> v)) throw std::runtime_error(tr8("Unexpected end of PLY file."));
             return v;
         }
         const int n = plyTypeSize(type);
-        if (n == 0) throw std::runtime_error("Unsupported PLY property type: " + type);
+        if (n == 0) throw std::runtime_error(tr8f("Unsupported PLY property type: %1", {type}));
         char buf[8];
-        if (!in.read(buf, n)) throw std::runtime_error("Unexpected end of PLY file.");
+        if (!in.read(buf, n)) throw std::runtime_error(tr8("Unexpected end of PLY file."));
         return plyDecode(buf, type, swap);
     };
 
@@ -691,7 +878,7 @@ handle<Poly_Triangulation> readPly(const std::string& path) {
     for (int i = 0; i < nv; ++i) tri->SetNode(i + 1, points[size_t(i)]);
     for (size_t i = 0; i < tris.size(); ++i) {
         for (int v : tris[i])
-            if (v < 0 || v >= nv) throw std::runtime_error("PLY file has an invalid vertex index.");
+            if (v < 0 || v >= nv) throw std::runtime_error(tr8("PLY file has an invalid vertex index."));
         tri->SetTriangle(int(i) + 1, Poly_Triangle(tris[i][0] + 1, tris[i][1] + 1, tris[i][2] + 1));
     }
     return tri;
@@ -699,8 +886,16 @@ handle<Poly_Triangulation> readPly(const std::string& path) {
 
 }  // namespace
 
-std::shared_ptr<Model> loadModelFile(const std::string& path, MeshQuality quality) {
+std::shared_ptr<Model> loadModelFile(const std::string& path, MeshQuality quality, LoadProgress* progress) {
+    setStage(progress, LoadStage::Reading, 0.f);
     const auto t0 = std::chrono::steady_clock::now();
+    // Set the environment variable CADSCOUT_TIMING to print how long each loading stage takes (for speed tests).
+    const bool timing = std::getenv("CADSCOUT_TIMING") != nullptr;
+    auto lap = [&, last = t0](const char* stage) mutable {
+        const auto now = std::chrono::steady_clock::now();
+        if (timing) std::fprintf(stderr, "[timing] %-22s %.3f s\n", stage, std::chrono::duration<double>(now - last).count());
+        last = now;
+    };
     const Format format = formatOf(path);
 
     handle<XCAFApp_Application> app = XCAFApp_Application::GetApplication();
@@ -716,7 +911,9 @@ std::shared_ptr<Model> loadModelFile(const std::string& path, MeshQuality qualit
     const handle<XCAFDoc_ShapeTool> shapeTool = XCAFDoc_DocumentTool::ShapeTool(doc->Main());
     bool needsMeshing = true;  // B-rep formats are tessellated here; mesh formats already are triangles
     bool b_splitFaceCompounds = false;
+    bool parallelRepair = false;  // STEP: repair the parts on all cores after translating
     std::string sceneInfo;  // short summary from the 3MF/DXF readers
+    std::vector<InfoSection> sceneSections;  // the file's own information (3MF projects)
     std::vector<ScenePlate> scenePlates;
     std::map<int, PartMeta> partMeta;
 
@@ -728,8 +925,21 @@ std::shared_ptr<Model> loadModelFile(const std::string& path, MeshQuality qualit
         reader.SetLayerMode(false);
         reader.SetPropsMode(false);
         reader.SetMatMode(false);
-        if (reader.ReadFile(path.c_str()) != IFSelect_RetDone) throw std::runtime_error("Could not read STEP file.");
-        if (!reader.Transfer(doc)) throw std::runtime_error("Could not translate STEP file.");
+        if (reader.ReadFile(path.c_str()) != IFSelect_RetDone) throw std::runtime_error(tr8f("Could not read %1 file.", {"STEP"}));
+        checkCancel(progress);
+        lap("STEP parse");
+        setStage(progress, LoadStage::Translating, 0.15f);
+        // OpenCASCADE's built-in shape repair is switched off here; the same repair is done afterwards on all cores
+        // (Builder::healParts).
+        parallelRepair = true;
+        reader.ChangeReader().SetShapeProcessFlags(ShapeProcess::OperationsFlags());
+        {
+            const handle<LoadIndicator> indicator = new LoadIndicator(progress, 0.15f, 0.30f);
+            const bool ok = reader.Transfer(doc, indicator->Start());
+            checkCancel(progress);
+            if (!ok) throw std::runtime_error(tr8f("Could not translate %1 file.", {"STEP"}));
+        }
+        lap("STEP translate");
         break;
     }
     case Format::Iges: {
@@ -737,15 +947,15 @@ std::shared_ptr<Model> loadModelFile(const std::string& path, MeshQuality qualit
         reader.SetColorMode(true);
         reader.SetNameMode(true);
         reader.SetLayerMode(false);
-        if (reader.ReadFile(path.c_str()) != IFSelect_RetDone) throw std::runtime_error("Could not read IGES file.");
-        if (!reader.Transfer(doc)) throw std::runtime_error("Could not translate IGES file.");
+        if (reader.ReadFile(path.c_str()) != IFSelect_RetDone) throw std::runtime_error(tr8f("Could not read %1 file.", {"IGES"}));
+        if (!reader.Transfer(doc)) throw std::runtime_error(tr8f("Could not translate %1 file.", {"IGES"}));
         break;
     }
     case Format::Brep: {
         TopoDS_Shape shape;
         BRep_Builder builder;
         if (!BRepTools::Read(shape, path.c_str(), builder) || shape.IsNull())
-            throw std::runtime_error("Could not read BREP file.");
+            throw std::runtime_error(tr8f("Could not read %1 file.", {"BREP"}));
         setLabelName(shapeTool->AddShape(shape, false), path);
         break;
     }
@@ -763,7 +973,7 @@ std::shared_ptr<Model> loadModelFile(const std::string& path, MeshQuality qualit
         RWObj_CafReader reader;
         reader.SetDocument(doc);
         if (!reader.Perform(TCollection_AsciiString(path.c_str()), Message_ProgressRange()))
-            throw std::runtime_error("Could not read OBJ file.");
+            throw std::runtime_error(tr8f("Could not read %1 file.", {"OBJ"}));
         break;
     }
     case Format::Vrml: {
@@ -773,7 +983,7 @@ std::shared_ptr<Model> loadModelFile(const std::string& path, MeshQuality qualit
         reader.SetFileLengthUnit(1.0);  // unset it is -1, which mirrors the whole model through the origin
         b_splitFaceCompounds = true;    // each VRML Shape arrives as one face: show each as its own part
         if (!reader.Perform(TCollection_AsciiString(path.c_str()), Message_ProgressRange()))
-            throw std::runtime_error("Could not read VRML file.");
+            throw std::runtime_error(tr8f("Could not read %1 file.", {"VRML"}));
         break;
     }
     case Format::Gltf: {
@@ -782,7 +992,7 @@ std::shared_ptr<Model> loadModelFile(const std::string& path, MeshQuality qualit
         reader.SetDocument(doc);
         reader.SetSystemCoordinateSystem(RWMesh_CoordinateSystem_Zup);  // glTF is Y-up; the viewer is Z-up
         if (!reader.Perform(TCollection_AsciiString(path.c_str()), Message_ProgressRange()))
-            throw std::runtime_error("Could not read glTF/GLB file.");
+            throw std::runtime_error(tr8f("Could not read %1 file.", {"glTF/GLB"}));
         break;
     }
     case Format::ThreeMf: {
@@ -790,6 +1000,7 @@ std::shared_ptr<Model> loadModelFile(const std::string& path, MeshQuality qualit
         Scene scene = read3mf(path);
         sceneInfo = scene.info;
         scenePlates = scene.plates;
+        sceneSections = std::move(scene.sections);
         partMeta = addScene(shapeTool, XCAFDoc_DocumentTool::ColorTool(doc->Main()), scene);
         break;
     }
@@ -806,6 +1017,7 @@ std::shared_ptr<Model> loadModelFile(const std::string& path, MeshQuality qualit
     model->formatName = formatName(format);
     model->singleObject = isSingleObjectFormat(format);
     model->extraInfo = sceneInfo;
+    model->sections = std::move(sceneSections);
     for (const ScenePlate& sp : scenePlates) {
         PlateShape plate;
         for (const auto& p : sp.outline) plate.outline.push_back({float(p[0]), float(p[1])});
@@ -823,7 +1035,7 @@ std::shared_ptr<Model> loadModelFile(const std::string& path, MeshQuality qualit
 
     TDF_LabelSequence freeShapes;
     b.shapes->GetFreeShapes(freeShapes);
-    if (freeShapes.IsEmpty()) throw std::runtime_error("The file contains no shapes.");
+    if (freeShapes.IsEmpty()) throw std::runtime_error(tr8("The file contains no shapes."));
     // Instanced meshes (glTF nodes sharing one mesh): a node placed at the origin becomes a plain "original" label and
     // later nodes become top-level references to it. Only the references count as free shapes, so the original would be
     // lost. A located node instead gets a hidden template label created right after its reference (next tag number);
@@ -854,30 +1066,54 @@ std::shared_ptr<Model> loadModelFile(const std::string& path, MeshQuality qualit
     }
 
     // Use the triangulation when a shape has one (mesh formats have no surfaces to measure).
+    checkCancel(progress);
     Bnd_Box box;
-    for (int i = 1; i <= freeShapes.Length(); ++i)
-        BRepBndLib::Add(b.shapes->GetShape(freeShapes.Value(i)), box, true);
-    if (box.IsVoid()) throw std::runtime_error("The file contains no geometry.");
+    if (parallelRepair) {
+        setStage(progress, LoadStage::Repairing, 0.30f);
+        b.progress = progress;
+        box = b.healParts(freeShapes);
+        lap("STEP repair");
+    } else {
+        for (int i = 1; i <= freeShapes.Length(); ++i)
+            BRepBndLib::Add(b.shapes->GetShape(freeShapes.Value(i)), box, true);
+    }
+    if (box.IsVoid()) throw std::runtime_error(tr8("The file contains no geometry."));
     const double diag = std::sqrt(box.SquareExtent());
+    lap("tree + bounds");
 
     if (needsMeshing) {
         // Linear deflection (fraction of the bounding-box diagonal) and angular deflection (radians)
         static const double kLinear[] = {4e-3, 1e-3, 2e-4};
         static const double kAngular[] = {0.8, 0.5, 0.2};
         const int q = std::clamp(int(quality), 0, 2);
-        for (int i = 1; i <= freeShapes.Length(); ++i) {
-            BRepMesh_IncrementalMesh mesher(b.shapes->GetShape(freeShapes.Value(i)),
-                                            std::fmax(diag * kLinear[q], 1e-6), false, kAngular[q], true);
+        IMeshTools_Parameters params;  // the same values the short BRepMesh_IncrementalMesh constructor sets
+        params.Deflection = std::fmax(diag * kLinear[q], 1e-6);
+        params.Angle = kAngular[q];
+        params.Relative = false;
+        params.InParallel = true;
+        const float meshFrom = parallelRepair ? 0.70f : 0.20f;
+        setStage(progress, LoadStage::Meshing, meshFrom);
+        const handle<LoadIndicator> indicator = new LoadIndicator(progress, meshFrom, 0.95f);
+        if (parallelRepair) {
+            BRepMesh_IncrementalMesh mesher(b.healedCompound(), params, indicator->Start());
+        } else {
+            Message_ProgressScope scope(indicator->Start(), "Meshing", freeShapes.Length());
+            for (int i = 1; i <= freeShapes.Length() && scope.More(); ++i)
+                BRepMesh_IncrementalMesh mesher(b.shapes->GetShape(freeShapes.Value(i)), params, scope.Next());
         }
+        checkCancel(progress);
+        lap("meshing");
     }
 
+    setStage(progress, LoadStage::Preparing, 0.95f);
     for (int i = 1; i <= freeShapes.Length(); ++i) b.walk(freeShapes.Value(i), TopLoc_Location(), Color{});
-
+    checkCancel(progress);
+    if (progress) progress->fraction = 1.f;
+    lap("display data");
+    if (timing)
+        std::fprintf(stderr, "[timing] result: %zu parts, %zu faces, %zu triangles, %zu colours\n", model->parts.size(),
+                     size_t(model->faceCount), size_t(model->triangleCount), model->batches.size());
     model->loadSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    if (model->triangleCount == 0 && model->edges.empty()) throw std::runtime_error("No displayable surfaces found.");
+    if (model->triangleCount == 0 && model->edges.empty()) throw std::runtime_error(tr8("No displayable surfaces found."));
     return model;
-}
-
-std::shared_ptr<Model> loadStepFile(const std::string& path, MeshQuality quality) {
-    return loadModelFile(path, quality);
 }
