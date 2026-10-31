@@ -275,7 +275,8 @@ the MSIX packages are made from.
   remove with `Get-AppxPackage CADscout.Lite | Remove-AppxPackage`, needed before rebuilding): Start menu entry, running as a package, "Open with",
   double-click as default, and the right-click entry with icon for all 14 types (classic menu, Windows 11) work; the entry is hidden for .txt.
   Not tested: a signed install, the Windows App Certification Kit, Windows 10. Full has no MSIX yet.
-- Code review fixes (done): line-only models (2D DXF) are drawn in a contrasting colour (`Viewport::paintGL`, `linesOnly`); DXF
+- Code review fixes (done): line-only models (2D DXF) are drawn in a contrasting colour (`Viewport::renderScene`, `linesOnly`);
+  so are the 2D lines of a DXF that also has 3D faces (parts without triangles, `EdgeSet::LinesOnly`), also with edges off; DXF
   LWPOLYLINE/POLYLINE bulges and the extrusion direction of ARC/CIRCLE/2D polylines are handled (`expandBulges`, `makeOcs` in
   `ExtraFormats.cpp`); `build_all.bat` empties `build\package` before staging; the point under the cursor is looked up once per
   wheel burst; zip sizes are sanity-checked; shader failures show a message (`Viewport::graphicsFailed`); GL buffers use 64-bit

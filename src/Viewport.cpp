@@ -614,14 +614,18 @@ void Viewport::drawMeshes(const QMatrix4x4& mvp, const QMatrix4x4& view, bool tr
     meshProg_.release();
 }
 
-void Viewport::drawEdges() {
+void Viewport::drawEdges(EdgeSet set) {
     edgeVao_.bind();
-    if (hiddenCount_ == 0 || !model_) {
+    if ((hiddenCount_ == 0 && set == EdgeSet::All) || !model_) {
         glDrawArrays(GL_LINES, 0, edgeVertexCount_);
     } else {
-        for (size_t i = 0; i < model_->parts.size(); ++i)
-            if (hidden_[i] != 1 && model_->parts[i].edgeCount > 0)
-                glDrawArrays(GL_LINES, GLint(model_->parts[i].edgeFirst), GLsizei(model_->parts[i].edgeCount));
+        for (size_t i = 0; i < model_->parts.size(); ++i) {
+            const Part& p = model_->parts[i];
+            if (p.edgeCount == 0 || (i < hidden_.size() && hidden_[i] == 1)) continue;
+            const bool lines = p.ranges.empty();  // a part made of lines only (2D drawing in a DXF)
+            if ((set == EdgeSet::SurfaceEdges && lines) || (set == EdgeSet::LinesOnly && !lines)) continue;
+            glDrawArrays(GL_LINES, GLint(p.edgeFirst), GLsizei(p.edgeCount));
+        }
     }
     edgeVao_.release();
 }
@@ -683,19 +687,25 @@ void Viewport::renderScene() {
     }
     glDisable(GL_POLYGON_OFFSET_FILL);
 
-    if ((showEdges_ || linesOnly) && edgeVertexCount_ > 0) {
+    // Drawing lines (a DXF's 2D lines, which have no surfaces) next to 3D faces: they are not outlines of a surface, so they
+    // take the contrasting colour like a line-only drawing and stay visible when edges are switched off.
+    bool freeLines = false;
+    if (!linesOnly && model_)
+        for (const Part& p : model_->parts)
+            if (p.ranges.empty() && p.edgeCount > 0) freeLines = true;
+    if ((showEdges_ || linesOnly || freeLines) && edgeVertexCount_ > 0) {
         lineProg_.bind();
-        lineProg_.setUniformValue("uMvp", mvp);
-        // Edges are dark outlines on the surfaces; line-only drawings have no surfaces, so they take the contrasting colour.
+        // Edges are dark outlines on the surfaces; drawing lines have no surfaces, so they take the contrasting colour.
         // The snapshot has no background and is usually pasted on white, so its drawings always get dark lines.
-        const QVector3D edgeColor = linesOnly
-                                        ? (dark_ && !transparentExport_ ? QVector3D(0.86f, 0.89f, 0.95f)
-                                                                        : QVector3D(0.10f, 0.12f, 0.16f))
-                                        : (dark_ ? QVector3D(0.02f, 0.02f, 0.03f) : QVector3D(0.08f, 0.08f, 0.10f));
-        lineProg_.setUniformValue("uColor", edgeColor);
-        if (exportEdgeWidth_ <= 1) {
-            drawEdges();
-        } else {
+        const QVector3D lineColor = dark_ && !transparentExport_ ? QVector3D(0.86f, 0.89f, 0.95f) : QVector3D(0.10f, 0.12f, 0.16f);
+        const QVector3D edgeColor = dark_ ? QVector3D(0.02f, 0.02f, 0.03f) : QVector3D(0.08f, 0.08f, 0.10f);
+        auto drawSet = [&](EdgeSet set, const QVector3D& color) {
+            lineProg_.setUniformValue("uColor", color);
+            if (exportEdgeWidth_ <= 1) {
+                lineProg_.setUniformValue("uMvp", mvp);
+                drawEdges(set);
+                return;
+            }
             // Thick edges for the bigger snapshot picture. The core OpenGL profile used here does not allow lines wider
             // than one pixel (glLineWidth), so the edges are drawn several times, each shifted by one pixel.
             const int w = exportEdgeWidth_;
@@ -705,9 +715,17 @@ void Viewport::renderScene() {
                     shift.translate(2.f * (dx - (w - 1) * 0.5f) / float(exportSize_.width()),
                                     2.f * (dy - (w - 1) * 0.5f) / float(exportSize_.height()));
                     lineProg_.setUniformValue("uMvp", shift * mvp);
-                    drawEdges();
+                    drawEdges(set);
                 }
             }
+        };
+        if (linesOnly) {
+            drawSet(EdgeSet::All, lineColor);
+        } else if (freeLines) {
+            if (showEdges_) drawSet(EdgeSet::SurfaceEdges, edgeColor);
+            drawSet(EdgeSet::LinesOnly, lineColor);
+        } else {
+            drawSet(EdgeSet::All, edgeColor);
         }
         lineProg_.release();
     }

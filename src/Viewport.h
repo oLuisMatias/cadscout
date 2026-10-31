@@ -95,7 +95,9 @@ private:
     int plateAt(const QPoint& pos) const;  // file plate under the cursor, -1 if none
     // Draws the solid parts, or only the transparent ones (see-through); hidden parts never.
     void drawMeshes(const QMatrix4x4& mvp, const QMatrix4x4& view, bool transparentPass = false);
-    void drawEdges();                                                                   // skips hidden parts' edges
+    // Which lines drawEdges draws: all, only the outlines of surfaces, or only drawing lines (parts without surfaces).
+    enum class EdgeSet { All, SurfaceEdges, LinesOnly };
+    void drawEdges(EdgeSet set = EdgeSet::All);  // skips hidden parts' lines
 
     QMatrix4x4 projMatrix() const;
     QMatrix4x4 viewMatrix() const;
