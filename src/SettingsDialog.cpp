@@ -356,9 +356,9 @@ void SettingsDialog::buildSupportItems(int cat) {
 }
 
 void SettingsDialog::buildGeneralItems(int cat) {
-    arrows_ = new FlatCheckBox(tx("Left / Right arrow keys open the previous / next model in the same folder"));
+    arrows_ = new FlatCheckBox(tx("Left / Right or PgUp / PgDown open the previous / next model in the same folder"));
     arrows_->setChecked(QSettings().value("browse/arrowKeys", true).toBool());
-    addItem(cat, tx("Browse files"), tx("Turn this off if you do not want the arrow keys to change the model."), arrows_);
+    addItem(cat, tx("Browse files"), tx("Turn this off to disable keyboard file browsing."), arrows_);
 
     reload_ = new FlatCheckBox(tx("Reload the model when its file changes"));
     reload_->setChecked(QSettings().value("browse/autoReload", true).toBool());
@@ -429,7 +429,9 @@ void SettingsDialog::buildShortcutItems(int cat) {
     table->addRow(tx("Fit to view"), {"F"}, tx("Anywhere"), tx("Built-in"), false);
 #ifdef CADSCOUT_LITE
     table->addRow(tx("Next file in folder"), {"→"}, tx("Model loaded"), tx("Built-in"), false);
+    table->addRow(tx("Next file in folder"), {"PgDown"}, tx("Model loaded"), tx("Built-in"), false);
     table->addRow(tx("Previous file in folder"), {"←"}, tx("Model loaded"), tx("Built-in"), false);
+    table->addRow(tx("Previous file in folder"), {"PgUp"}, tx("Model loaded"), tx("Built-in"), false);
     table->addRow(tx("Snapshot"), {"Ctrl", "C"}, tx("Model loaded"), tx("Built-in"), false);
     table->addRow(tx("Reload file"), {"F5"}, tx("Model loaded"), tx("Built-in"), false);
     table->addRow(tx("Open in new window"), {"Ctrl", "N"}, tx("Anywhere"), tx("Built-in"), false);

@@ -300,6 +300,8 @@ MainWindow::MainWindow() {
 #ifdef CADSCOUT_LITE
     addShortcut(Qt::Key_Right, [this] { browseFolder(+1); });
     addShortcut(Qt::Key_Left, [this] { browseFolder(-1); });
+    addShortcut(Qt::Key_PageDown, [this] { browseFolder(+1); });
+    addShortcut(Qt::Key_PageUp, [this] { browseFolder(-1); });
     addShortcut(QKeySequence::Copy, [this] { copyImage(); });
     addShortcut(Qt::Key_F5, [this] { reloadFile(); });
     addShortcut(QKeySequence::New, [this] { newWindow(); });

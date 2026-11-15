@@ -23,7 +23,7 @@ See [Releases](../../releases) for what changed in each version.
 - **Snapshot:** Ctrl+C copies the view as a sharp picture with a transparent background.
 - **Follows your work:** the file reloads by itself when it is saved again (F5 to reload by hand), keeping the camera
   and the hidden or transparent parts.
-- **Browse:** the Left/Right arrow keys open the previous/next model in the folder; recent files; open a second window
+- **Browse:** Left/Right or PgUp/PgDown open the previous/next model in the folder; recent files; open a second window
   (Ctrl+N); drag and drop.
 - **Explorer:** right-click a model file and choose "View with CADscout".
 - **3D printing projects:** for 3MF files a side panel (key I) shows the printer, print profile, filaments, plates,
