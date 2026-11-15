@@ -926,10 +926,24 @@ void Viewport::mouseMoveEvent(QMouseEvent* e) {
     last_ = e->pos();
     switch (drag_) {
     case Drag::Orbit: {
-        const float k = 0.4f;
-        const QQuaternion r = QQuaternion::fromAxisAndAngle(cameraAxis(1), -d.x() * k) *
-                              QQuaternion::fromAxisAndAngle(cameraAxis(0), -d.y() * k);
-        rotateAbout(pivot_, r);
+        // Constrained orbit: the plate normal (world Z) stays vertical on screen.
+        // Keep the horizontal camera axis even at the poles, where the viewing
+        // direction alone cannot determine a heading.
+        constexpr float radiansPerPixel = 0.006981317008f;  // 0.4 degrees per pixel
+        constexpr float maxElevation = 1.570796326795f;    // 90 degrees
+        const QVector3D worldUp(0, 0, 1);
+        const QVector3D back = cameraAxis(2);
+        const float elevation = std::atan2(back.z(), std::hypot(back.x(), back.y()));
+        const float nextElevation = std::clamp(elevation + d.y() * radiansPerPixel, -maxElevation, maxElevation);
+        QVector3D right = cameraAxis(0);
+        right.setZ(0.f);
+        const float halfYaw = -d.x() * radiansPerPixel * 0.5f;
+        right = QQuaternion(std::cos(halfYaw), worldUp * std::sin(halfYaw)).rotatedVector(right.normalized());
+        const QVector3D nextBack = QVector3D::crossProduct(right, worldUp) * std::cos(nextElevation) +
+                                   worldUp * std::sin(nextElevation);
+        const QVector3D up = QVector3D::crossProduct(nextBack, right);
+        const QQuaternion nextOrientation = QQuaternion::fromAxes(right, up, nextBack).normalized();
+        rotateAbout(pivot_, nextOrientation * orientation_.conjugated());
         break;
     }
     case Drag::Pan: {
