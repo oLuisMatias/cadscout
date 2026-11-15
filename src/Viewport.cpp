@@ -67,6 +67,24 @@ out vec4 fragColor;
 void main() { fragColor = vec4(mix(uTop, uBottom, clamp(vT, 0.0, 1.0)), 1.0); }
 )";
 
+const char* kPivotVert = R"(#version 330 core
+uniform mat4 uMvp;
+uniform mat3 uNormalMat;
+out vec3 vNormal;
+void main() {
+    // A unit sphere with 24 longitude segments and 16 latitude bands, wound outwards.
+    const ivec2 corners[6] = ivec2[6](ivec2(0, 0), ivec2(1, 0), ivec2(0, 1),
+                                    ivec2(1, 0), ivec2(1, 1), ivec2(0, 1));
+    int cell = gl_VertexID / 6;
+    ivec2 grid = ivec2(cell % 24, cell / 24) + corners[gl_VertexID % 6];
+    float longitude = float(grid.x) * (6.28318530718 / 24.0);
+    float latitude = float(grid.y) * (3.14159265359 / 16.0) - 1.57079632679;
+    vec3 normal = vec3(cos(latitude) * cos(longitude), cos(latitude) * sin(longitude), sin(latitude));
+    vNormal = uNormalMat * normal;
+    gl_Position = uMvp * vec4(normal, 1.0);
+}
+)";
+
 constexpr Qt::KeyboardModifiers kModMask = Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier;
 
 QQuaternion isoOrientation() {
@@ -99,8 +117,8 @@ void Viewport::initializeGL() {
                prog.addShaderFromSourceCode(QOpenGLShader::Fragment, fragment) && prog.link();
     };
     if (!build(meshProg_, kMeshVert, kMeshFrag) || !build(lineProg_, kLineVert, kLineFrag) ||
-        !build(bgProg_, kBgVert, kBgFrag)) {
-        const QString log = meshProg_.log() + lineProg_.log() + bgProg_.log();
+        !build(bgProg_, kBgVert, kBgFrag) || !build(pivotProg_, kPivotVert, kMeshFrag)) {
+        const QString log = meshProg_.log() + lineProg_.log() + bgProg_.log() + pivotProg_.log();
         QTimer::singleShot(0, this, [this, log] {
             emit graphicsFailed(tx("The graphics driver could not prepare the 3D view, so models cannot be shown. Please "
                                    "update your graphics driver.") + "\n\n" + log.left(400));
@@ -630,7 +648,44 @@ void Viewport::drawEdges(EdgeSet set) {
     edgeVao_.release();
 }
 
-void Viewport::paintGL() { renderScene(); }
+void Viewport::paintGL() {
+    renderScene();
+    if (drag_ == Drag::Orbit) drawOrbitPivot();
+}
+
+void Viewport::drawOrbitPivot() {
+    if (width() <= 0 || height() <= 0) return;
+    const QMatrix4x4 view = viewMatrix();
+    const float depth = -view.map(pivot_).z();
+    if (perspective_ && depth <= 0.f) return;
+
+    // Scale real sphere geometry to a 10-logical-pixel diameter at the pivot's depth.
+    constexpr float radiusPixels = 5.0f;
+    const float worldPerPixel = 2.f * (perspective_ ? depth : distance_) *
+                                std::tan(qDegreesToRadians(kFov * 0.5f)) / float(height());
+    QMatrix4x4 sphere;
+    sphere.translate(pivot_);
+    sphere.scale(radiusPixels * worldPerPixel);
+    pivotProg_.bind();
+    pivotProg_.setUniformValue("uMvp", projMatrix() * view * sphere);
+    pivotProg_.setUniformValue("uNormalMat", view.normalMatrix());
+    pivotProg_.setUniformValue("uColor", QVector3D(0.12f, 0.85f, 0.25f));
+    pivotProg_.setUniformValue("uAlpha", 0.3f);
+    // Solid surfaces occlude the sphere. Draw its front faces once for 30% transparency.
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    bgVao_.bind();
+    glDrawArrays(GL_TRIANGLES, 0, 24 * 16 * 6);
+    bgVao_.release();
+    glDisable(GL_BLEND);
+    glDisable(GL_CULL_FACE);
+    glDepthMask(GL_TRUE);
+    pivotProg_.release();
+}
 
 void Viewport::renderScene() {
     if (pendingUpload_) uploadModel();
@@ -804,6 +859,11 @@ bool Viewport::pickPoint(const QPoint& pos, QVector3D& world, int* part, bool in
     }
     float depth = 1.f;
     glReadPixels(x, y, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
+    if (!part && depth >= 1.f && transparentCount_ > 0) {
+        // Camera pivots prefer solids, then the nearest transparent surface when no solid was hit.
+        drawMeshes(mvp, view, true);
+        glReadPixels(x, y, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
+    }
     glDisable(GL_SCISSOR_TEST);
     pickFbo_->release();
     doneCurrent();
@@ -904,6 +964,7 @@ void Viewport::beginDrag(Drag mode, const QPoint& pos) {
         panDepth_ = found ? std::max(QVector3D::dotProduct(hit - eyePosition(), -cameraAxis(2)), distance_ * 1e-3f)
                           : distance_;
     }
+    update();  // show the pivot on press, or remove it as soon as the drag switches away from orbit
 }
 
 void Viewport::mouseMoveEvent(QMouseEvent* e) {
@@ -967,6 +1028,7 @@ void Viewport::mouseReleaseEvent(QMouseEvent* e) {
     if (e->button() == dragButton_) {
         drag_ = Drag::None;
         dragButton_ = Qt::NoButton;
+        update();
     }
 }
 

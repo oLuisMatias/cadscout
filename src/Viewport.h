@@ -85,6 +85,7 @@ private:
     };
 
     void renderScene();  // everything paintGL draws, into the framebuffer that is currently bound
+    void drawOrbitPivot();  // fixed screen-size sphere, only during an orbit and never in exported pictures
     void uploadModel();
     void releaseGpu();
     void releasePlateGpu();
@@ -107,6 +108,7 @@ private:
 
     // Returns true and the world position of the surface under the widget position.
     // Transparent parts are skipped (clicks go to the parts behind them) unless includeTransparent is set (right click).
+    // Camera pivots check solids first, then fall back to the nearest transparent surface.
     bool pickPoint(const QPoint& pos, QVector3D& world, int* part = nullptr, bool includeTransparent = false);
     QVector3D unproject(const QPoint& pos, float ndcZ) const;
     void scaleAbout(const QVector3D& p, float factor);
@@ -131,7 +133,7 @@ private:
     QPoint rightPressPos_;
     bool rightPressed_ = false;
 
-    QOpenGLShaderProgram meshProg_, lineProg_, bgProg_;
+    QOpenGLShaderProgram meshProg_, lineProg_, bgProg_, pivotProg_;
     std::vector<std::unique_ptr<GpuBatch>> gpu_;
     QOpenGLVertexArrayObject edgeVao_, bgVao_;
     QOpenGLBuffer edgeVbo_{QOpenGLBuffer::VertexBuffer};
