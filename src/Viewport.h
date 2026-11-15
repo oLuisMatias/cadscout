@@ -40,10 +40,13 @@ public:
     void selectPart(int part);
     // Hidden parts are not drawn, picked or copied; a new model shows everything again.
     void setPartHidden(int part, bool hidden);
+    // Keep the selected part through transparent -> hidden -> visible, so repeated presses target the same part.
+    void cycleSelectedPartVisibility();
+    bool partHidden(int part) const { return part >= 0 && size_t(part) < hidden_.size() && hidden_[size_t(part)] == 1; }
     void showOnlyPart(int part);
     void showAllParts();
     int hiddenCount() const { return hiddenCount_; }
-    // Transparent parts are see-through and cannot be clicked, so the parts behind them can be picked.
+    // Transparent parts are see-through and selectable; solid parts under the cursor take priority.
     void setPartTransparent(int part, bool on);
     void makeAllSolid();
     int transparentCount() const { return transparentCount_; }
@@ -106,8 +109,8 @@ private:
     void clipPlanes(float& nearP, float& farP) const;
 
     // Returns true and the world position of the surface under the widget position.
-    // Transparent parts are skipped (clicks go to the parts behind them) unless includeTransparent is set (right click).
-    bool pickPoint(const QPoint& pos, QVector3D& world, int* part = nullptr, bool includeTransparent = false);
+    // Part picking checks solids first, then transparent parts. Camera pivots (no part output) use solids only.
+    bool pickPoint(const QPoint& pos, QVector3D& world, int* part = nullptr);
     QVector3D unproject(const QPoint& pos, float ndcZ) const;
     void scaleAbout(const QVector3D& p, float factor);
     void rotateAbout(const QVector3D& p, const QQuaternion& r);

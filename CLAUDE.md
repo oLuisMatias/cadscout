@@ -224,10 +224,11 @@ the MSIX packages are made from.
   Make Transparent / Make Solid, Show All, Make All Solid (`Viewport::contextRequested`, `setPartHidden`, `showOnlyPart`, `showAllParts`,
   `setPartTransparent`, `makeAllSolid`; per-part state in `Viewport::hidden_`: 0 solid, 1 hidden, 2 transparent). Hidden parts are not
   drawn, picked or copied; their edges are skipped through `Part::edgeFirst/edgeCount`. Transparent parts are drawn last at 25 %
-  opacity without writing depth; clicks (left and right) pass through them to the solid parts behind. Only where no
-  solid part is behind does a right click reach the transparent part itself (`pickPoint(..., includeTransparent)`), and
-  the menu then offers "Make Solid" instead of "Make Transparent" (a version where the right click always hit the
-  transparent part was rejected: the parts behind could no longer be right-clicked). A global X-ray (all parts, X key) existed
+  opacity without writing depth; both left and right clicks prefer solid parts under the cursor, then fall back to the
+  nearest transparent part (`pickPoint`). Transparent parts retain selection and their highlight stays see-through.
+  V (both apps) cycles the selected part through transparent, hidden, visible (solid), then transparent again.
+  Selection is retained while hidden so the next press restores the same part. The menu offers "Make Solid" for
+  transparent parts. A global X-ray (all parts, X key) existed
   briefly and was replaced by this on the user's request.
 - Zip files (Lite): a .zip opens the model inside it (Open dialog, drag-and-drop, command line, recent list). One model: opened
   directly; several: a menu in the middle of the view asks which (`chooseZipEntry`); none: a message. The chosen model is

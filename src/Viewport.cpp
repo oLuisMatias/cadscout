@@ -139,6 +139,23 @@ void Viewport::setPartHidden(int part, bool hide) {
     update();
 }
 
+void Viewport::cycleSelectedPartVisibility() {
+    const int part = selected_;
+    if (!model_ || part < 0 || size_t(part) >= hidden_.size()) return;
+    if (partHidden(part)) {
+        setPartHidden(part, false);  // Restore as solid, clearing the remembered transparency.
+    } else if (partTransparent(part)) {
+        // Unlike the menu's Hide action, keep the selection so the next press can restore this part.
+        hidden_[size_t(part)] = 1;
+        hiddenWasTransparent_[size_t(part)] = 1;
+        --transparentCount_;
+        ++hiddenCount_;
+        update();
+    } else {
+        setPartTransparent(part, true);
+    }
+}
+
 void Viewport::showOnlyPart(int part) {
     if (!model_ || part < 0 || size_t(part) >= hidden_.size()) return;
     for (size_t i = 0; i < hidden_.size(); ++i) hiddenWasTransparent_[i] = hidden_[i] == 2 || (hidden_[i] == 1 && hiddenWasTransparent_[i]);
@@ -170,7 +187,6 @@ void Viewport::setPartTransparent(int part, bool on) {
     if (s == 1 || (s == 2) == on) return;
     s = on ? 2 : 0;
     transparentCount_ += on ? 1 : -1;
-    if (on && selected_ == part) selectPart(-1);
     update();
 }
 
@@ -602,7 +618,9 @@ void Viewport::drawMeshes(const QMatrix4x4& mvp, const QMatrix4x4& view, bool tr
             if (hidden_[i] != want) continue;
             for (const PartRange& r : model_->parts[i].ranges) {
                 GpuBatch& g = *gpu_[size_t(r.batch)];
-                meshProg_.setUniformValue("uColor", g.color);
+                QVector3D color = g.color;
+                if (transparentPass && int(i) == selected_) color = color * 0.3f + QVector3D(1.f, 0.55f, 0.1f) * 0.7f;
+                meshProg_.setUniformValue("uColor", color);
                 g.vao.bind();
                 glDrawElements(GL_TRIANGLES, int(r.count), GL_UNSIGNED_INT,
                                reinterpret_cast<void*>(uintptr_t(r.start) * sizeof(uint32_t)));
@@ -666,9 +684,9 @@ void Viewport::renderScene() {
     glEnable(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(1.f, 1.f);
     drawMeshes(mvp, view);
-    // The selected part is highlighted, also when it is transparent (selected with a right click); hidden parts are not.
+    // Solid selection highlight; transparent selections are highlighted in the transparent pass to stay see-through.
     if (selected_ >= 0 && model_ && size_t(selected_) < model_->parts.size() &&
-        !(size_t(selected_) < hidden_.size() && hidden_[size_t(selected_)] == 1)) {
+        !(size_t(selected_) < hidden_.size() && hidden_[size_t(selected_)] != 0)) {
         glDepthFunc(GL_LEQUAL);
         meshProg_.bind();
         meshProg_.setUniformValue("uMvp", mvp);
@@ -753,7 +771,7 @@ QVector3D Viewport::unproject(const QPoint& pos, float ndcZ) const {
     return ok ? inv.map(QVector3D(x, y, ndcZ)) : target_;
 }
 
-bool Viewport::pickPoint(const QPoint& pos, QVector3D& world, int* part, bool includeTransparent) {
+bool Viewport::pickPoint(const QPoint& pos, QVector3D& world, int* part) {
     if (gpu_.empty()) return false;
     if (part) *part = -1;
     makeCurrent();
@@ -778,27 +796,30 @@ bool Viewport::pickPoint(const QPoint& pos, QVector3D& world, int* part, bool in
     const QMatrix4x4 mvp = projMatrix() * view;
     int id = 0;
     if (part && model_) {
-        // Flat-colour pass where each part's colour encodes its index
+        // Flat-colour passes encode part indices. A solid hit wins even behind a transparent surface.
         lineProg_.bind();
         lineProg_.setUniformValue("uMvp", mvp);
-        for (size_t i = 0; i < model_->parts.size(); ++i) {
-            // Hidden parts cannot be clicked; transparent ones only with a right click.
-            if (i < hidden_.size() && (hidden_[i] == 1 || (hidden_[i] == 2 && !includeTransparent))) continue;
-            const uint32_t k = uint32_t(i) + 1;
-            lineProg_.setUniformValue("uColor", QVector3D(float(k & 255) / 255.f, float((k >> 8) & 255) / 255.f,
-                                                          float((k >> 16) & 255) / 255.f));
-            for (const PartRange& r : model_->parts[i].ranges) {
-                GpuBatch& g = *gpu_[size_t(r.batch)];
-                g.vao.bind();
-                glDrawElements(GL_TRIANGLES, int(r.count), GL_UNSIGNED_INT,
-                               reinterpret_cast<void*>(uintptr_t(r.start) * sizeof(uint32_t)));
-                g.vao.release();
+        for (const char state : {char(0), char(2)}) {
+            if (state == 2 && transparentCount_ == 0) break;
+            for (size_t i = 0; i < model_->parts.size(); ++i) {
+                if (hidden_[i] != state) continue;  // Hidden parts are never picked.
+                const uint32_t k = uint32_t(i) + 1;
+                lineProg_.setUniformValue("uColor", QVector3D(float(k & 255) / 255.f, float((k >> 8) & 255) / 255.f,
+                                                              float((k >> 16) & 255) / 255.f));
+                for (const PartRange& r : model_->parts[i].ranges) {
+                    GpuBatch& g = *gpu_[size_t(r.batch)];
+                    g.vao.bind();
+                    glDrawElements(GL_TRIANGLES, int(r.count), GL_UNSIGNED_INT,
+                                   reinterpret_cast<void*>(uintptr_t(r.start) * sizeof(uint32_t)));
+                    g.vao.release();
+                }
             }
+            unsigned char rgba[4] = {0, 0, 0, 0};
+            glReadPixels(x, y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+            id = rgba[0] | (rgba[1] << 8) | (rgba[2] << 16);
+            if (id > 0) break;  // No solid hit leaves the pixel and depth clear for the transparent pass.
         }
         lineProg_.release();
-        unsigned char rgba[4] = {0, 0, 0, 0};
-        glReadPixels(x, y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
-        id = rgba[0] | (rgba[1] << 8) | (rgba[2] << 16);
     } else {
         drawMeshes(mvp, view);
     }
@@ -840,7 +861,7 @@ void Viewport::selectAt(const QPoint& pos) {
     selectPart(part);
     if (part >= 0) {
         emit partClicked(part, pos);
-    } else {  // nothing solid under the cursor: maybe a print plate
+    } else {  // no part under the cursor: maybe a print plate
         const int plate = plateAt(pos);
         if (plate >= 0) emit plateClicked(plate, pos);
     }
@@ -957,10 +978,8 @@ void Viewport::mouseReleaseEvent(QMouseEvent* e) {
         if ((e->pos() - rightPressPos_).manhattanLength() < 4) {
             QVector3D world;
             int part = -1;
-            // Like a left click the right click passes through transparent parts, so the solid parts behind them can be
-            // reached. Only where nothing solid is behind it does it reach the transparent part itself (to make it solid).
+            // Both click types prefer solid parts, falling back to transparent ones.
             if (!model_ || !pickPoint(e->pos(), world, &part)) part = -1;
-            if (part < 0 && model_ && transparentCount_ > 0 && !pickPoint(e->pos(), world, &part, true)) part = -1;
             emit contextRequested(part, e->pos());
         }
     }

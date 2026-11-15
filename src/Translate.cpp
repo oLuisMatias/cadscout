@@ -129,14 +129,14 @@ const Entry kTable[] = {
      "Model sa nepodarilo rozbaliť zo súboru zip."},
     {"Make Transparent", "Tornar transparente", "Transparent machen", "Hacer transparente", "Spraviť priehľadným"},
     {"Make Solid", "Tornar sólida", "Undurchsichtig machen", "Hacer sólida", "Spraviť plným"},
-    {"Transparent parts cannot be clicked: the parts behind them can. Right-click and choose \"Make All Solid\" to undo.",
-     "As peças transparentes não podem ser clicadas, as que estão atrás delas sim. Clique com o botão direito e escolha "
+    {"Solid parts are selected first, then transparent parts. Right-click and choose \"Make All Solid\" to undo.",
+     "As peças sólidas são selecionadas primeiro, depois as transparentes. Clique com o botão direito e escolha "
      "\"Tornar todas sólidas\" para anular.",
-     "Transparente Teile lassen sich nicht anklicken, die Teile dahinter schon. Mit Rechtsklick und „Alle undurchsichtig "
+     "Undurchsichtige Teile werden zuerst ausgewählt, dann transparente. Mit Rechtsklick und „Alle undurchsichtig "
      "machen“ rückgängig machen.",
-     "Las piezas transparentes no se pueden seleccionar, las de detrás sí. Haz clic derecho y elige \"Hacer todas "
+     "Las piezas sólidas se seleccionan primero, después las transparentes. Haz clic derecho y elige \"Hacer todas "
      "sólidas\" para deshacerlo.",
-     "Na priehľadné diely sa nedá kliknúť, na diely za nimi áno. Vrátite to pravým kliknutím a voľbou „Spraviť všetky "
+     "Najprv sa vyberajú plné diely, potom priehľadné. Vrátite to pravým kliknutím a voľbou „Spraviť všetky "
      "plnými“."},
     {"Make All Solid (%1 transparent)", "Tornar todas sólidas (%1 transparentes)",
      "Alle undurchsichtig machen (%1 transparent)", "Hacer todas sólidas (%1 transparentes)",
@@ -306,6 +306,23 @@ const Entry kTable[] = {
     {"Hide a part, make it transparent", "Ocultar uma peça, torná-la transparente", "Teil ausblenden, transparent machen",
      "Ocultar una pieza, hacerla transparente", "Skryť diel, spraviť ho priehľadným"},
     {"Click on a part", "Clique numa peça", "Klick auf ein Teil", "Clic en una pieza", "Kliknutie na diel"},
+    {"Cycle part visibility", "Alternar visibilidade da peça", "Sichtbarkeit des Teils wechseln", "Alternar visibilidad de la pieza", "Prepínať viditeľnosť dielu"},
+    {"Part made transparent. Press V again to hide it.",
+     "Peça tornada transparente. Prima V novamente para a ocultar.",
+     "Teil transparent gemacht. Zum Ausblenden erneut V drücken.",
+     "Pieza hecha transparente. Pulsa V de nuevo para ocultarla.",
+     "Diel je priehľadný. Opätovným stlačením V ho skryjete."},
+    {"Part hidden. Press V again to show it.",
+     "Peça oculta. Prima V novamente para a mostrar.",
+     "Teil ausgeblendet. Zum Einblenden erneut V drücken.",
+     "Pieza oculta. Pulsa V de nuevo para mostrarla.",
+     "Diel je skrytý. Opätovným stlačením V ho zobrazíte."},
+    {"Part made visible. Press V again to make it transparent.",
+     "Peça visível. Prima V novamente para a tornar transparente.",
+     "Teil eingeblendet. Zum Transparentmachen erneut V drücken.",
+     "Pieza visible. Pulsa V de nuevo para hacerla transparente.",
+     "Diel je viditeľný. Opätovným stlačením V ho spriehľadníte."},
+    {"Part selected", "Peça selecionada", "Teil ausgewählt", "Pieza seleccionada", "Vybraný diel"},
     {"Show / hide edges", "Mostrar / ocultar arestas", "Kanten ein / aus", "Mostrar / ocultar aristas", "Zobraziť / skryť hrany"},
     {"Home view", "Vista inicial", "Startansicht", "Vista inicial", "Úvodný pohľad"},
     {"Show / hide assembly tree", "Mostrar / ocultar árvore da montagem", "Baugruppenstruktur ein / aus",

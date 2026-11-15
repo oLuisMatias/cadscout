@@ -281,9 +281,10 @@ MainWindow::MainWindow() {
     connect(aboutBtn, &QToolButton::clicked, this, &MainWindow::openAbout);
 
     // Keyboard shortcuts
-    auto addShortcut = [this](const QKeySequence& k, auto slot) {
+    auto addShortcut = [this](const QKeySequence& k, auto slot, bool autoRepeat = false) {
         auto* a = new QAction(this);
         a->setShortcut(k);
+        a->setAutoRepeat(autoRepeat);
         connect(a, &QAction::triggered, this, slot);
         addAction(a);
     };
@@ -297,6 +298,21 @@ MainWindow::MainWindow() {
         if (infoTab_ && infoTab_->isChecked()) infoTab_->setChecked(false);
     });
     addShortcut(Qt::Key_F, [this] { viewport_->fitToView(); });
+    addShortcut(Qt::Key_V, [this] {
+        const int part = viewport_->selectedPart();
+        if (loading_ || !model_ || part < 0 || size_t(part) >= model_->parts.size()) return;
+        if (popup_) popup_->hide();
+        viewport_->cycleSelectedPartVisibility();
+#ifdef CADSCOUT_LITE
+        if (viewport_->partHidden(part)) {
+            flashStatus(tx("Part hidden. Press V again to show it."));
+        } else if (viewport_->partTransparent(part)) {
+            flashStatus(tx("Part made transparent. Press V again to hide it."));
+        } else {
+            flashStatus(tx("Part made visible. Press V again to make it transparent."));
+        }
+#endif
+    });
 #ifdef CADSCOUT_LITE
     addShortcut(Qt::Key_Right, [this] { browseFolder(+1); });
     addShortcut(Qt::Key_Left, [this] { browseFolder(-1); });
@@ -1104,13 +1120,13 @@ void MainWindow::showPartMenu(int part, const QPoint& pos) {
         if (model_->parts.size() > 1) {
             connect(menu.addAction(icon("target"), tx("Show Only")), &QAction::triggered, this,
                     [this, part] { viewport_->showOnlyPart(part); });
-            // Transparent parts are only reached where nothing solid is behind them (see Viewport::mouseReleaseEvent).
+            // Transparent parts are reached where no solid part is under the cursor.
             const bool on = !viewport_->partTransparent(part);
             connect(menu.addAction(icon(on ? "layers-intersect" : "cube"), on ? tx("Make Transparent") : tx("Make Solid")),
                     &QAction::triggered, this, [this, part, on] {
                         viewport_->setPartTransparent(part, on);
                         if (on)
-                            flashStatus(tx("Transparent parts cannot be clicked: the parts behind them can. Right-click and "
+                            flashStatus(tx("Solid parts are selected first, then transparent parts. Right-click and "
                                            "choose \"Make All Solid\" to undo."));
                     });
         }

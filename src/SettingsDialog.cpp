@@ -436,6 +436,7 @@ void SettingsDialog::buildShortcutItems(int cat) {
     table->addRow(tx("Cancel loading"), {"Esc"}, tx("While a file loads"), tx("Built-in"), false);
     table->addRow(tx("Hide a part, make it transparent"), {tx("Right Button")}, tx("Click on a part"), tx("Built-in"), false);
 #endif
+    table->addRow(tx("Cycle part visibility"), {"V"}, tx("Part selected"), tx("Built-in"), false);
 #ifndef CADSCOUT_LITE
     table->addRow(tx("Show / hide edges"), {"E"}, tx("Anywhere"), tx("Built-in"), false);
     table->addRow(tx("Home view"), {"H"}, tx("Anywhere"), tx("Built-in"), false);
@@ -445,7 +446,7 @@ void SettingsDialog::buildShortcutItems(int cat) {
     table->addRow(tx("About CADscout"), {"F1"}, tx("Anywhere"), tx("Built-in"), false);
     table->addRow(tx("Close the info popup"), {"Esc"}, tx("Anywhere"), tx("Built-in"), false);
     addWide(cat, tx("Keyboard shortcuts of the viewer. They are fixed and cannot be changed."), table,
-            "keyboard keys shortcuts open fit edges home tree popup", table);
+            "keyboard keys shortcuts open fit edges home tree popup hide selected part", table);
 }
 
 // Shows the current bindings (modifier + mouse button) in the table; marks rows that differ from the CAD defaults.
